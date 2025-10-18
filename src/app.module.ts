@@ -2,18 +2,22 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { CommonModule } from './common/common.module';
+import { StoresModule } from './stores/stores.module';
+import { ProductsModule } from './products/products.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
-    AuthModule,
+    ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    CommonModule,
+    AuthModule,
     UsersModule,
-    ConfigModule.forRoot({
-      isGlobal: true, // <- imprescindible
-    }),
+    StoresModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

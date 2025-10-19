@@ -12,7 +12,13 @@ export class OwnershipService {
     });
     return count > 0;
   }
-
+  async isStoreOwnerOrAdmin(
+    user: { id: number; role: 'USER' | 'STORE_OWNER' | 'ADMIN' },
+    storeId: number,
+  ) {
+    if (user.role === 'ADMIN') return true;
+    return this.isStoreOwner(user.id, storeId);
+  }
   async isProductOwner(userId: number, productId: number): Promise<boolean> {
     const count = await this.prisma.product.count({
       where: { id: productId, store: { ownerId: userId } },

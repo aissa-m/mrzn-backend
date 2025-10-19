@@ -34,23 +34,34 @@ export class StoresService {
     return store;
   }
 
-  async update(userId: number, id: number, dto: UpdateStoreDto) {
-    const owns = await this.ownership.isStoreOwner(userId, id);
-    if (!owns) throw new ForbiddenException('Not the store owner');
+  // stores.service.ts
+  async update(
+    user: { id: number; role: 'USER' | 'STORE_OWNER' | 'ADMIN' },
+    id: number,
+    dto: UpdateStoreDto,
+  ) {
+    const allowed = await this.ownership.isStoreOwnerOrAdmin(user, id);
+    if (!allowed)
+      throw new ForbiddenException('Not allowed to update this store');
 
-    return this.prisma.store.update({
-      where: { id },
-      data: { ...dto },
-    });
+    await this.findOne(id);
+    return this.prisma.store.update({ where: { id }, data: { ...dto } });
   }
 
-  async remove(userId: number, id: number) {
-    const owns = await this.ownership.isStoreOwner(userId, id);
-    if (!owns) throw new ForbiddenException('Not the store owner');
+  async remove(
+    user: { id: number; role: 'USER' | 'STORE_OWNER' | 'ADMIN' },
+    id: number,
+  ) {
+    const allowed = await this.ownership.isStoreOwnerOrAdmin(user, id);
+    if (!allowed)
+      throw new ForbiddenException('Not allowed to delete this store');
 
-    await this.findOne(id); // asegura NotFound
-    await this.prisma.product.deleteMany({ where: { storeId: id } }); // cascada “manual” si quieres
-    await this.prisma.store.delete({ where: { id } });
+    await this.findOne(id);
+    // ⚠️ Mejor en transacción:
+    await this.prisma.$transaction([
+      this.prisma.product.deleteMany({ where: { storeId: id } }),
+      this.prisma.store.delete({ where: { id } }),
+    ]);
     return { ok: true };
   }
 }

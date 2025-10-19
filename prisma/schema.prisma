@@ -7,6 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/** === Nuevos enums para planes y estado de suscripción === */
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+/** === Roles existentes === */
 enum Role {
   USER
   STORE_OWNER
@@ -23,6 +39,44 @@ model User {
 
   // relación: un usuario puede tener varias tiendas
   stores    Store[]
+
+  // relación 1-1: plan/suscripción actual del usuario (opcional)
+  subscription Subscription?
+}
+
+/** Configuración de límites por plan (editable sin redeploy).
+  - Ej.: FREE = 1 tienda, 20 productos por tienda, etc.
+  - Puedes dejar valores null y gestionarlo por código si aún no decides.
+*/
+model PlanLimit {
+  id                   Int   @id @default(autoincrement())
+  plan                 Plan  @unique
+  maxStores            Int?
+  maxProductsPerStore  Int?
+}
+
+/** Una suscripción “actual” por usuario (1-1).
+  - Útil para guardar el plan y sincronizar con Stripe/PayPal cuando lo añadas.
+*/
+model Subscription {
+  id                     Int       @id @default(autoincrement())
+  userId                 Int       @unique
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan                   Plan      @default(FREE)
+  status                 SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart     DateTime  @default(now())
+  currentPeriodEnd       DateTime?
+  cancelAt               DateTime?
+  canceledAt             DateTime?
+
+  // IDs externos (opcionales) para pasarela de pago
+  externalCustomerId     String?   @db.VarChar(191)
+  externalSubscriptionId String?   @db.VarChar(191)
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 model Store {
@@ -35,6 +89,8 @@ model Store {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  // Útil para evitar duplicados de nombre dentro del mismo owner
+  @@unique([ownerId, name])
   @@index([ownerId])
 }
 
@@ -50,5 +106,7 @@ model Product {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  // Evita productos con mismo nombre en una misma tienda (opcional pero práctico)
+  @@unique([storeId, name])
   @@index([storeId])
 }

@@ -1,3 +1,4 @@
+// src/products/dto/update-product.dto.ts
 import { IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
 
 export class UpdateProductDto {

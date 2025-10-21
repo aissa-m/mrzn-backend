@@ -7,13 +7,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OwnershipService } from '../common/services/ownership.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { Prisma } from '@prisma/client';
+import { QueryProductsDto } from './dto/query-products.dto';
 
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
-  ) {}
+  ) { }
 
   async create(userId: number, dto: CreateProductDto) {
     const ownsStore = await this.ownership.isStoreOwner(userId, dto.storeId);
@@ -60,5 +62,54 @@ export class ProductsService {
 
     await this.prisma.product.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async findManyWithQuery(q: QueryProductsDto) {
+    const {
+      storeId,
+      search,
+      minPrice,
+      maxPrice,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      page = 1,
+      limit = 20,
+    } = q;
+
+    const where: Prisma.ProductWhereInput = {
+      ...(storeId ? { storeId } : {}),
+      ...(search
+        ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+        : {}),
+      ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
+      ...(maxPrice ? { price: { lte: new Prisma.Decimal(maxPrice) } } : {}),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return {
+      meta: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit) || 1,
+        sortBy,
+        sortOrder,
+      },
+      items,
+    };
   }
 }

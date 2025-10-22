@@ -7,7 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/** === Nuevos enums para planes y estado de suscripción === */
+/**
+ * === Nuevos enums para planes y estado de suscripción ===
+ */
 enum Plan {
   FREE
   PRO
@@ -22,7 +24,9 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
-/** === Roles existentes === */
+/**
+ * === Roles existentes ===
+ */
 enum Role {
   USER
   STORE_OWNER
@@ -30,64 +34,79 @@ enum Role {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   name      String
-  email     String    @unique
+  email     String   @unique
   password  String
-  role      Role      @default(USER)
-  createdAt DateTime  @default(now())
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
 
   // relación: un usuario puede tener varias tiendas
-  stores    Store[]
+  stores Store[]
 
   // relación 1-1: plan/suscripción actual del usuario (opcional)
   subscription Subscription?
+
+  // pedidos del usuario (mantengo tu nombre de campo)
+  Order Order[]
+
+  // chat
+  messages             Message[] // mensajes enviados por este usuario
+  conversationsAsBuyer Conversation[] // conversaciones donde este usuario es el comprador
 }
 
-/** Configuración de límites por plan (editable sin redeploy).
-  - Ej.: FREE = 1 tienda, 20 productos por tienda, etc.
-  - Puedes dejar valores null y gestionarlo por código si aún no decides.
-*/
+/**
+ * Configuración de límites por plan (editable sin redeploy).
+ * - Ej.: FREE = 1 tienda, 20 productos por tienda, etc.
+ * - Puedes dejar valores null y gestionarlo por código si aún no decides.
+ */
 model PlanLimit {
-  id                   Int   @id @default(autoincrement())
-  plan                 Plan  @unique
-  maxStores            Int?
-  maxProductsPerStore  Int?
+  id                  Int  @id @default(autoincrement())
+  plan                Plan @unique
+  maxStores           Int?
+  maxProductsPerStore Int?
 }
 
-/** Una suscripción “actual” por usuario (1-1).
-  - Útil para guardar el plan y sincronizar con Stripe/PayPal cuando lo añadas.
-*/
+/**
+ * Una suscripción “actual” por usuario (1-1).
+ * - Útil para guardar el plan y sincronizar con Stripe/PayPal cuando lo añadas.
+ */
 model Subscription {
-  id                     Int       @id @default(autoincrement())
-  userId                 Int       @unique
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  plan                   Plan      @default(FREE)
-  status                 SubscriptionStatus @default(ACTIVE)
+  plan   Plan               @default(FREE)
+  status SubscriptionStatus @default(ACTIVE)
 
-  currentPeriodStart     DateTime  @default(now())
-  currentPeriodEnd       DateTime?
-  cancelAt               DateTime?
-  canceledAt             DateTime?
+  currentPeriodStart DateTime  @default(now())
+  currentPeriodEnd   DateTime?
+  cancelAt           DateTime?
+  canceledAt         DateTime?
 
   // IDs externos (opcionales) para pasarela de pago
-  externalCustomerId     String?   @db.VarChar(191)
-  externalSubscriptionId String?   @db.VarChar(191)
+  externalCustomerId     String? @db.VarChar(191)
+  externalSubscriptionId String? @db.VarChar(191)
 
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Store {
-  id        Int       @id @default(autoincrement())
-  name      String
-  ownerId   Int
-  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  products  Product[]
+  id       Int       @id @default(autoincrement())
+  name     String
+  ownerId  Int
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products Product[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // pedidos de la tienda (mantengo tu nombre de campo)
+  Order Order[]
+
+  // chat
+  conversations Conversation[]
 
   // Útil para evitar duplicados de nombre dentro del mismo owner
   @@unique([ownerId, name])
@@ -95,18 +114,111 @@ model Store {
 }
 
 model Product {
-  id          Int       @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   name        String
   description String?
-  price       Decimal    @db.Decimal(10, 2)
+  price       Decimal @db.Decimal(10, 2)
 
-  storeId     Int
-  store       Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId Int
+  store   Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // items en pedidos (mantengo tu nombre de campo)
+  OrderItem OrderItem[]
+
+  // chat
+  conversations Conversation[]
 
   // Evita productos con mismo nombre en una misma tienda (opcional pero práctico)
   @@unique([storeId, name])
   @@index([storeId])
+}
+
+model Order {
+  id        Int         @id @default(autoincrement())
+  userId    Int
+  storeId   Int
+  total     Float       @default(0)
+  status    OrderStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relaciones
+  user  User        @relation(fields: [userId], references: [id])
+  store Store       @relation(fields: [storeId], references: [id])
+  items OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int   @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  quantity  Int   @default(1)
+  price     Float
+
+  // Relaciones
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELED
+  SHIPPED
+  COMPLETED
+}
+
+/**
+ * === Chat estilo Wallapop: Conversación por producto entre comprador y tienda ===
+ */
+model Conversation {
+  id        Int                @id @default(autoincrement())
+  productId Int
+  storeId   Int
+  buyerId   Int
+  status    ConversationStatus @default(OPEN)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  // Relaciones
+  product  Product   @relation(fields: [productId], references: [id])
+  store    Store     @relation(fields: [storeId], references: [id])
+  buyer    User      @relation(fields: [buyerId], references: [id])
+  messages Message[]
+
+  // Evita hilos duplicados abiertos para el mismo comprador y producto
+  @@unique([buyerId, productId, status])
+  @@index([storeId])
+  @@index([productId])
+  @@index([buyerId])
+  @@map("conversations")
+}
+
+model Message {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+  body           String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  // Relaciones
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@map("messages")
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
 }

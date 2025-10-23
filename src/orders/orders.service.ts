@@ -101,7 +101,7 @@ export class OrdersService {
   ) {
     // Permitir si ADMIN o si es owner de la tienda
     if (user.role !== Role.ADMIN) {
-      const owns = await this.ownership.userOwnsStore(user.id, storeId);
+      const owns = await this.ownership.isStoreOwner(user.id, storeId);
       if (!owns) {
         throw new ForbiddenException(
           'No tienes permisos para ver pedidos de esta tienda.',
@@ -129,7 +129,7 @@ export class OrdersService {
     const isBuyer = order.userId === user.id;
     const isStoreOwner =
       user.role !== Role.ADMIN &&
-      (await this.ownership.userOwnsStore(user.id, order.storeId));
+      (await this.ownership.isStoreOwner(user.id, order.storeId));
 
     if (!(isBuyer || isStoreOwner || user.role === Role.ADMIN)) {
       throw new ForbiddenException('No tienes acceso a este pedido.');
@@ -157,7 +157,7 @@ export class OrdersService {
 
     // Permisos: STORE_OWNER de esa tienda o ADMIN
     if (user.role !== Role.ADMIN) {
-      const owns = await this.ownership.userOwnsStore(user.id, order.storeId);
+      const owns = await this.ownership.isStoreOwner(user.id, order.storeId);
       if (!owns) {
         throw new ForbiddenException(
           'No puedes modificar el estado de este pedido.',
@@ -207,14 +207,15 @@ export class OrdersService {
       }
     } else if (user.role !== Role.ADMIN) {
       // Store owner puede cancelar si es su tienda
-      const owns = await this.ownership.userOwnsStore(user.id, order.storeId);
+      const owns = await this.ownership.isStoreOwner(user.id, order.storeId);
       if (!owns) {
         throw new ForbiddenException(
           'No puedes cancelar este pedido.',
         );
       }
       // (opcional) restringir qué estados puede cancelar el propietario
-      if (![OrderStatus.PENDING, OrderStatus.PAID].includes(order.status)) {
+      const ownerCancelableStatuses: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.PAID];
+      if (!ownerCancelableStatuses.includes(order.status)) {
         throw new BadRequestException(
           'Este pedido no puede cancelarse en su estado actual.',
         );

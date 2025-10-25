@@ -1,18 +1,30 @@
-import { IsArray, ValidateNested, IsInt, Min } from 'class-validator';
+// src/orders/dto/create-order.dto.ts
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsPositive,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
-class OrderItemInput {
+class CreateOrderItemDto {
   @IsInt()
-  productId: number;
+  @IsPositive()
+  productId!: number;
 
   @IsInt()
-  @Min(1)
-  quantity: number;
+  @IsPositive()
+  quantity!: number;
 }
 
 export class CreateOrderDto {
+  @IsInt()
+  @IsPositive()
+  storeId!: number;
+
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => OrderItemInput)
-  items: OrderItemInput[];
+  @Type(() => CreateOrderItemDto)
+  items!: CreateOrderItemDto[];
 }

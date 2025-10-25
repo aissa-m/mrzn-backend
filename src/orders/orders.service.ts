@@ -8,13 +8,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OwnershipService } from '../common/services/ownership.service';
 import { OrderStatus, Role } from '@prisma/client';
+import { JwtUserPayload } from 'src/auth/roles.guard';
+import { QueryOrdersDto } from './dto/query-orders.dto';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
-  ) {}
+  ) { }
 
   // ====== CREATE ======
   async create(userId: number, dto: CreateOrderDto) {
@@ -136,7 +138,7 @@ export class OrdersService {
     }
 
     return order;
-    }
+  }
 
   // ====== UPDATE STATUS ======
   async updateStatus(
@@ -239,5 +241,76 @@ export class OrdersService {
       include: { items: true, user: true, store: true },
     });
     return deleted;
+  }
+
+
+  // new methods 
+
+  async findMany(user: JwtUserPayload, dto: QueryOrdersDto) {
+    const { page = 1, pageSize = 10, status, from, to, storeId } = dto;
+
+    // Base del "where" según rol
+    let where: any = {};
+    if (user.role === 'USER') {
+      where.userId = user.id;
+    } else if (user.role === 'STORE_OWNER') {
+      // pedidos de las tiendas que posee
+      where.store = { ownerId: user.id };
+      if (storeId) where.storeId = storeId;
+    } // ADMIN ve todos
+
+    if (status) where.status = status;
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(from);
+      if (to) where.createdAt.lte = new Date(to);
+    }
+
+    const [total, data] = await this.prisma.$transaction([
+      this.prisma.order.count({ where }),
+      this.prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          items: true,
+          store: { select: { id: true, name: true, ownerId: true } },
+          user: { select: { id: true, email: true, name: true } },
+        },
+      }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        pages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  async findOne(user: JwtUserPayload, id: number) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        items: true,
+        store: { select: { id: true, name: true, ownerId: true } },
+        user: { select: { id: true, email: true, name: true } },
+      },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    const canSee =
+      user.role === 'ADMIN' ||
+      order.userId === user.id ||
+      order.store.ownerId === user.id;
+
+    if (!canSee) throw new ForbiddenException('Access denied');
+
+    return order;
   }
 }

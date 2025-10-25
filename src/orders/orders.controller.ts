@@ -7,15 +7,17 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import * as rolesGuard from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client'; // si tu enum Role está en Prisma
+import { QueryOrdersDto } from './dto/query-orders.dto';
 // Si tu enum Role es local, cambia el import a tu ruta local de types
 
 @Controller('orders')
@@ -27,7 +29,7 @@ export class OrdersController {
    * ADMIN: Listado general de pedidos
    */
   @Get()
-  @UseGuards(RolesGuard)
+  @UseGuards(rolesGuard.RolesGuard)
   @Roles(Role.ADMIN)
   findAll() {
     return this.ordersService.findAll();
@@ -40,7 +42,7 @@ export class OrdersController {
 
 
   @Get('store/:storeId')
-  @UseGuards(RolesGuard)
+  @UseGuards(rolesGuard.RolesGuard)
   @Roles(Role.STORE_OWNER, Role.ADMIN)
   findByStore(@Param('storeId', ParseIntPipe) storeId: number, @CurrentUser() user: { id: number; role?: Role }) {
     return this.ordersService.findByStore(storeId, user);
@@ -57,7 +59,7 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
-  @UseGuards(RolesGuard)
+  @UseGuards(rolesGuard.RolesGuard)
   @Roles(Role.STORE_OWNER, Role.ADMIN)
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
@@ -73,9 +75,18 @@ export class OrdersController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
+  @UseGuards(rolesGuard.RolesGuard)
   @Roles(Role.ADMIN)
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.ordersService.remove(id);
   }
+
+  @Get()
+  findMany(
+    @CurrentUser() user: rolesGuard.JwtUserPayload,
+    @Query() dto: QueryOrdersDto,
+  ) {
+    return this.ordersService.findMany(user, dto);
+  }
+
 }

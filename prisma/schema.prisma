@@ -178,47 +178,73 @@ enum OrderStatus {
 /**
  * === Chat estilo Wallapop: Conversación por producto entre comprador y tienda ===
  */
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
 model Conversation {
-  id        Int                @id @default(autoincrement())
-  productId Int
-  storeId   Int
-  buyerId   Int
-  status    ConversationStatus @default(OPEN)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id             Int                       @id @default(autoincrement())
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  // Opcional: enlazar a una tienda u orden para contexto (filtrar chats por tienda, etc.)
+  storeId        Int?
+  orderId        Int?
 
-  // Relaciones
-  product  Product   @relation(fields: [productId], references: [id])
-  store    Store     @relation(fields: [storeId], references: [id])
-  buyer    User      @relation(fields: [buyerId], references: [id])
-  messages Message[]
+  participants   ConversationParticipant[]
+  messages       Message[]
 
-  // Evita hilos duplicados abiertos para el mismo comprador y producto
-  @@unique([buyerId, productId, status])
+  // Para listados rápidos
+  lastMessageAt  DateTime?                 @db.Timestamp(6)
+  lastMessageId  Int?
+  lastMessage    Message?                  @relation("LastMessage", fields: [lastMessageId], references: [id])
+
   @@index([storeId])
-  @@index([productId])
-  @@index([buyerId])
-  @@map("conversations")
+  @@index([orderId])
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  conversationId Int
+  userId         Int
+  role           String?                  // "BUYER" | "SELLER" (opcional, orientativo)
+  joinedAt       DateTime                 @default(now())
+  lastReadAt     DateTime?
+
+  conversation   Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
 }
 
 model Message {
-  id             Int      @id @default(autoincrement())
+  id             Int                      @id @default(autoincrement())
   conversationId Int
   senderId       Int
-  body           String
-  isRead         Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  type           MessageType              @default(TEXT)
+  content        String?                  // texto opcional si es IMAGE
+  createdAt      DateTime                 @default(now())
 
-  // Relaciones
-  conversation Conversation @relation(fields: [conversationId], references: [id])
-  sender       User         @relation(fields: [senderId], references: [id])
+  conversation   Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User                     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  attachments    MessageAttachment[]
 
-  @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@index([senderId])
-  @@map("messages")
 }
 
-enum ConversationStatus {
-  OPEN
-  CLOSED
+model MessageAttachment {
+  id         Int       @id @default(autoincrement())
+  messageId  Int
+  url        String    // dónde se aloja la imagen (S3/R2/local)
+  mimeType   String
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+
+  message    Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
 }

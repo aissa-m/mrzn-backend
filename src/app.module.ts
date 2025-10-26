@@ -9,6 +9,7 @@ import { StoresModule } from './stores/stores.module';
 import { ProductsModule } from './products/products.module';
 import { ConfigModule } from '@nestjs/config';
 import { OrdersModule } from './orders/orders.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { OrdersModule } from './orders/orders.module';
     UsersModule,
     StoresModule,
     ProductsModule,
-    OrdersModule
+    OrdersModule,
+    ChatModule
   ],
   controllers: [AppController],
   providers: [AppService],

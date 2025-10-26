@@ -16,9 +16,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import * as rolesGuard from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Role } from '@prisma/client'; // si tu enum Role está en Prisma
+import { Role } from '@prisma/client';
 import { QueryOrdersDto } from './dto/query-orders.dto';
-// Si tu enum Role es local, cambia el import a tu ruta local de types
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard) // por defecto todas requieren login, salvo que expongas alguna pública

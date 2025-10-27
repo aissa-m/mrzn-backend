@@ -10,6 +10,8 @@ import { ProductsModule } from './products/products.module';
 import { ConfigModule } from '@nestjs/config';
 import { OrdersModule } from './orders/orders.module';
 import { ChatModule } from './chat/chat.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -21,7 +23,11 @@ import { ChatModule } from './chat/chat.module';
     StoresModule,
     ProductsModule,
     OrdersModule,
-    ChatModule
+    ChatModule,
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'uploads'), // 👈 Ruta ABSOLUTA a tu carpeta 'uploads'
+      serveRoot: '/uploads',                      // 👈 Prefijo de la URL
+    })
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -8,7 +8,7 @@ datasource db {
 }
 
 /**
- * === Nuevos enums para planes y estado de suscripción ===
+ * === Enums ===
  */
 enum Plan {
   FREE
@@ -24,15 +24,29 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
-/**
- * === Roles existentes ===
- */
 enum Role {
   USER
   STORE_OWNER
   ADMIN
 }
 
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELED
+  SHIPPED
+  COMPLETED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
+/**
+ * === Modelos ===
+ */
 model User {
   id        Int      @id @default(autoincrement())
   name      String
@@ -41,25 +55,22 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
-  // relación: un usuario puede tener varias tiendas
+  // tiendas del usuario
   stores Store[]
 
-  // relación 1-1: plan/suscripción actual del usuario (opcional)
+  // suscripción actual (1-1)
   subscription Subscription?
 
-  // pedidos del usuario (mantengo tu nombre de campo)
+  // pedidos del usuario
   Order Order[]
 
-  // chat
-  messages             Message[] // mensajes enviados por este usuario
-  conversationsAsBuyer Conversation[] // conversaciones donde este usuario es el comprador
+  // mensajes enviados por el usuario
+  messages Message[]
+
+  // participación en conversaciones (tabla puente)
+  conversationParticipants ConversationParticipant[]
 }
 
-/**
- * Configuración de límites por plan (editable sin redeploy).
- * - Ej.: FREE = 1 tienda, 20 productos por tienda, etc.
- * - Puedes dejar valores null y gestionarlo por código si aún no decides.
- */
 model PlanLimit {
   id                  Int  @id @default(autoincrement())
   plan                Plan @unique
@@ -67,10 +78,6 @@ model PlanLimit {
   maxProductsPerStore Int?
 }
 
-/**
- * Una suscripción “actual” por usuario (1-1).
- * - Útil para guardar el plan y sincronizar con Stripe/PayPal cuando lo añadas.
- */
 model Subscription {
   id     Int  @id @default(autoincrement())
   userId Int  @unique
@@ -84,7 +91,7 @@ model Subscription {
   cancelAt           DateTime?
   canceledAt         DateTime?
 
-  // IDs externos (opcionales) para pasarela de pago
+  // IDs externos (opcionales)
   externalCustomerId     String? @db.VarChar(191)
   externalSubscriptionId String? @db.VarChar(191)
 
@@ -102,13 +109,12 @@ model Store {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // pedidos de la tienda (mantengo tu nombre de campo)
+  // pedidos de la tienda
   Order Order[]
 
-  // chat
+  // conversaciones relacionadas con la tienda
   conversations Conversation[]
 
-  // Útil para evitar duplicados de nombre dentro del mismo owner
   @@unique([ownerId, name])
   @@index([ownerId])
 }
@@ -125,13 +131,12 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // items en pedidos (mantengo tu nombre de campo)
+  // items en pedidos
   OrderItem OrderItem[]
 
-  // chat
-  conversations Conversation[]
+  // conversaciones sobre este producto (relación nombrada)
+  conversations Conversation[] @relation("ProductConversations")
 
-  // Evita productos con mismo nombre en una misma tienda (opcional pero práctico)
   @@unique([storeId, name])
   @@index([storeId])
 }
@@ -150,6 +155,9 @@ model Order {
   store Store       @relation(fields: [storeId], references: [id])
   items OrderItem[]
 
+  // conversaciones ligadas a este pedido (opcional)
+  conversations Conversation[]
+
   @@map("orders")
 }
 
@@ -160,91 +168,91 @@ model OrderItem {
   quantity  Int   @default(1)
   price     Float
 
-  // Relaciones
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])
 
   @@map("order_items")
 }
 
-enum OrderStatus {
-  PENDING
-  PAID
-  CANCELED
-  SHIPPED
-  COMPLETED
-}
-
 /**
- * === Chat estilo Wallapop: Conversación por producto entre comprador y tienda ===
+ * === Chat estilo Wallapop ===
+ * Conversación por producto/tienda/pedido entre usuarios.
  */
-enum MessageType {
-  TEXT
-  IMAGE
-  SYSTEM
-}
-
 model Conversation {
-  id             Int                       @id @default(autoincrement())
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
-  // Opcional: enlazar a una tienda u orden para contexto (filtrar chats por tienda, etc.)
-  storeId        Int?
-  orderId        Int?
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  participants   ConversationParticipant[]
-  messages       Message[]
+  // contexto opcional
+  storeId   Int?
+  orderId   Int?
+  productId Int?
 
-  // Para listados rápidos
-  lastMessageAt  DateTime?                 @db.Timestamp(6)
-  lastMessageId  Int?
-  lastMessage    Message?                  @relation("LastMessage", fields: [lastMessageId], references: [id])
+  store   Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product Product? @relation("ProductConversations", fields: [productId], references: [id], onDelete: SetNull)
+
+  participants ConversationParticipant[]
+  messages     Message[]                 @relation("ConversationMessages")
+
+  // último mensaje
+  lastMessageAt DateTime? @db.Timestamp(6)
+  lastMessageId Int?      @unique
+  lastMessage   Message?  @relation("LastMessage", fields: [lastMessageId], references: [id])
 
   @@index([storeId])
   @@index([orderId])
+  @@index([productId])
   @@index([lastMessageAt])
 }
 
-model ConversationParticipant {
-  conversationId Int
-  userId         Int
-  role           String?                  // "BUYER" | "SELLER" (opcional, orientativo)
-  joinedAt       DateTime                 @default(now())
-  lastReadAt     DateTime?
-
-  conversation   Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([conversationId, userId])
-  @@index([userId])
-}
-
 model Message {
-  id             Int                      @id @default(autoincrement())
+  id             Int         @id @default(autoincrement())
   conversationId Int
   senderId       Int
-  type           MessageType              @default(TEXT)
-  content        String?                  // texto opcional si es IMAGE
-  createdAt      DateTime                 @default(now())
+  type           MessageType @default(TEXT)
+  content        String?
+  createdAt      DateTime    @default(now())
 
-  conversation   Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User                     @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  attachments    MessageAttachment[]
+  // relación principal con la conversación (lista de mensajes)
+  conversation Conversation @relation("ConversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // inverso de Conversation.lastMessage
+  lastMessageOf Conversation? @relation("LastMessage")
+
+  // usuario que envía
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  attachments MessageAttachment[]
 
   @@index([conversationId, createdAt])
   @@index([senderId])
 }
 
-model MessageAttachment {
-  id         Int       @id @default(autoincrement())
-  messageId  Int
-  url        String    // dónde se aloja la imagen (S3/R2/local)
-  mimeType   String
-  sizeBytes  Int
-  width      Int?
-  height     Int?
+model ConversationParticipant {
+  conversationId Int
+  userId         Int
+  role           String? // "BUYER" | "SELLER" (orientativo)
+  joinedAt       DateTime  @default(now())
+  lastReadAt     DateTime?
 
-  message    Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model MessageAttachment {
+  id        Int    @id @default(autoincrement())
+  messageId Int
+  url       String // ubicación del archivo (S3/R2/local)
+  mimeType  String
+  sizeBytes Int
+  width     Int?
+  height    Int?
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
 }

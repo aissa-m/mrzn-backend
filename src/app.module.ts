@@ -25,8 +25,8 @@ import { join } from 'path';
     OrdersModule,
     ChatModule,
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'uploads'), // 👈 Ruta ABSOLUTA a tu carpeta 'uploads'
-      serveRoot: '/uploads',                      // 👈 Prefijo de la URL
+      rootPath: join(__dirname, '..', 'uploads'),
+      serveRoot: '/uploads',                      
     })
   ],
   controllers: [AppController],

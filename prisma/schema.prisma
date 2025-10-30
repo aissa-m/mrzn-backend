@@ -69,6 +69,8 @@ model User {
 
   // participación en conversaciones (tabla puente)
   conversationParticipants ConversationParticipant[]
+   // 🔔 notificaciones recibidas
+  notifications Notification[]
 }
 
 model PlanLimit {
@@ -255,4 +257,19 @@ model MessageAttachment {
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String   // "NEW_MESSAGE" | "ORDER_UPDATE" | etc.
+  title     String
+  body      String?
+  data      Json?    // información adicional (ej: { "conversationId": 1 })
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
 }

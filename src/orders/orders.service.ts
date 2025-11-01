@@ -10,12 +10,14 @@ import { OwnershipService } from '../common/services/ownership.service';
 import { OrderStatus, Role } from '@prisma/client';
 import { JwtUserPayload } from 'src/auth/roles.guard';
 import { QueryOrdersDto } from './dto/query-orders.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
+    private readonly notifications: NotificationsService,
   ) { }
 
   // ====== CREATE ======
@@ -187,6 +189,26 @@ export class OrdersService {
       data: { status },
       include: { items: true, user: true, store: true },
     });
+
+    // 🔔 Notificaciones (comprador y dueño de la tienda)
+    const payload = { orderId: updated.id, storeId: updated.storeId, userId: updated.userId, status };
+
+    await Promise.all([
+      this.notifications.create(
+        updated.userId,
+        'ORDER_UPDATE',
+        `Tu pedido #${updated.id} ahora está ${status}`,
+        `Estado: ${status}`,
+        payload,
+      ),
+      this.notifications.create(
+        updated.store.ownerId,
+        'ORDER_UPDATE',
+        `Pedido #${updated.id} actualizado a ${status}`,
+        `Estado: ${status}`,
+        payload,
+      ),
+    ]);
 
     return updated;
   }

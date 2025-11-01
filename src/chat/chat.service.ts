@@ -5,6 +5,7 @@ import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { JwtUserPayload } from '../auth/types';
 import { CursorDto, PageDto } from './dto/pagination.dto';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 function parseCursor(cursor?: string) {
   if (!cursor) return null;
@@ -16,7 +17,7 @@ function parseCursor(cursor?: string) {
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService, ) { }
 
   /** Crear/abrir conversación 1:1 (si existe, la reutiliza) */
   async openConversation(user: JwtUserPayload, dto: CreateConversationDto) {
@@ -143,10 +144,28 @@ export class ChatService {
       data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
     });
 
+    // 🔔 Notificar a los otros participantes
+    const others = await this.prisma.conversationParticipant.findMany({
+      where: { conversationId: dto.conversationId, userId: { not: user.id } },
+      select: { userId: true },
+    });
+
+    await Promise.all(
+      others.map(o =>
+        this.notifications.create(
+          o.userId,
+          'NEW_MESSAGE',
+          'Nuevo mensaje',
+          msg.content ?? '📎 Has recibido un mensaje',
+          { conversationId: dto.conversationId, messageId: msg.id, senderId: user.id }
+        )
+      )
+    );
+
     return msg;
   }
 
-  /** Subida de imagen ya guardada por el controller → crear mensaje + attachment */
+  /** Subir imagen → crea mensaje + attachment + notificación */
   async attachImage(user: JwtUserPayload, conversationId: number, fileInfo: {
     url: string; mimeType: string; sizeBytes: number; width?: number; height?: number;
   }) {
@@ -178,8 +197,28 @@ export class ChatService {
       data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
     });
 
+    // 🔔 Notificar a los otros participantes
+    const others = await this.prisma.conversationParticipant.findMany({
+      where: { conversationId, userId: { not: user.id } },
+      select: { userId: true },
+    });
+
+    await Promise.all(
+      others.map(o =>
+        this.notifications.create(
+          o.userId,
+          'NEW_MESSAGE',
+          'Nueva imagen',
+          '📷 Te enviaron una imagen',
+          { conversationId, messageId: msg.id, senderId: user.id }
+        )
+      )
+    );
+
     return msg;
   }
+
+
 
   /** Marcar como leído */
   async markRead(user: JwtUserPayload, conversationId: number) {

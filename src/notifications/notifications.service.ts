@@ -7,7 +7,7 @@ import { NotificationsGateway } from './notifications.gateway';
 export class NotificationsService {
   constructor(
     private prisma: PrismaService,
-    private gateway: NotificationsGateway,     // 👈 inyecta gateway
+    private gateway: NotificationsGateway,
   ) {}
 
   async create(userId: number, type: string, title: string, body?: string, data?: any) {

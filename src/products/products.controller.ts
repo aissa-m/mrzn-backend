@@ -32,7 +32,7 @@ export class ProductsController {
   }
 
   // Productos de una tienda (público o protégelo si quieres)
-  @Get()
+  @Get('by-store')
   findByStore(@Query('storeId') storeId?: string) {
     if (!storeId) return [];
     return this.productsService.findAllByStore(Number(storeId));

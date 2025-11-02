@@ -6,6 +6,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { JwtUserPayload } from '../auth/types';
 import { CursorDto, PageDto } from './dto/pagination.dto';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { ChatGateway } from './chat.gateway'; // ✨ NUEVO
 
 function parseCursor(cursor?: string) {
   if (!cursor) return null;
@@ -17,7 +18,11 @@ function parseCursor(cursor?: string) {
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService, ) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly chatGateway: ChatGateway, // ✨ NUEVO
+  ) { }
 
   /** Crear/abrir conversación 1:1 (si existe, la reutiliza) */
   async openConversation(user: JwtUserPayload, dto: CreateConversationDto) {
@@ -123,7 +128,7 @@ export class ChatService {
     return { data: messages, nextCursor };
   }
 
-  /** Enviar texto */
+  /** Enviar texto - VERSIÓN MEJORADA */
   async sendText(user: JwtUserPayload, dto: SendMessageDto) {
     const part = await this.prisma.conversationParticipant.findUnique({
       where: { conversationId_userId: { conversationId: dto.conversationId, userId: user.id } },
@@ -137,6 +142,10 @@ export class ChatService {
         type: 'TEXT',
         content: dto.content,
       },
+      include: {
+        sender: { select: { id: true, name: true, email: true } }, // ✨ Incluir sender para WS
+        attachments: true
+      },
     });
 
     await this.prisma.conversation.update({
@@ -144,31 +153,39 @@ export class ChatService {
       data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
     });
 
-    // 🔔 Notificar a los otros participantes
+    // ✨ NUEVO: Emitir por WebSocket PRIMERO
+    this.chatGateway.emitNewMessage(dto.conversationId, msg);
+
+    // 🔔 Notificar SOLO a usuarios offline
     const others = await this.prisma.conversationParticipant.findMany({
       where: { conversationId: dto.conversationId, userId: { not: user.id } },
       select: { userId: true },
     });
 
     await Promise.all(
-      others.map(o =>
-        this.notifications.create(
-          o.userId,
-          'NEW_MESSAGE',
-          'Nuevo mensaje',
-          msg.content ?? '📎 Has recibido un mensaje',
-          { conversationId: dto.conversationId, messageId: msg.id, senderId: user.id }
-        )
-      )
+      others.map(async (o) => {
+        // ✨ Solo notificar si está offline
+        if (!this.chatGateway.isUserOnline(o.userId)) {
+          await this.notifications.create(
+            o.userId,
+            'NEW_MESSAGE',
+            'Nuevo mensaje',
+            msg.content ?? '📎 Has recibido un mensaje',
+            { conversationId: dto.conversationId, messageId: msg.id, senderId: user.id }
+          );
+        }
+      })
     );
 
     return msg;
   }
 
-  /** Subir imagen → crea mensaje + attachment + notificación */
-  async attachImage(user: JwtUserPayload, conversationId: number, fileInfo: {
-    url: string; mimeType: string; sizeBytes: number; width?: number; height?: number;
-  }) {
+  /** Subir imagen - VERSIÓN MEJORADA */
+  async attachImage(
+    user: JwtUserPayload,
+    conversationId: number,
+    fileInfo: { url: string; mimeType: string; sizeBytes: number; width?: number; height?: number }
+  ) {
     const part = await this.prisma.conversationParticipant.findUnique({
       where: { conversationId_userId: { conversationId, userId: user.id } },
     });
@@ -189,7 +206,10 @@ export class ChatService {
           },
         },
       },
-      include: { attachments: true },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true, email: true } } // ✨ Para WS
+      },
     });
 
     await this.prisma.conversation.update({
@@ -197,35 +217,42 @@ export class ChatService {
       data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
     });
 
-    // 🔔 Notificar a los otros participantes
+    // ✨ NUEVO: Emitir por WebSocket
+    this.chatGateway.emitNewMessage(conversationId, msg);
+
+    // 🔔 Notificar SOLO offline
     const others = await this.prisma.conversationParticipant.findMany({
       where: { conversationId, userId: { not: user.id } },
       select: { userId: true },
     });
 
     await Promise.all(
-      others.map(o =>
-        this.notifications.create(
-          o.userId,
-          'NEW_MESSAGE',
-          'Nueva imagen',
-          '📷 Te enviaron una imagen',
-          { conversationId, messageId: msg.id, senderId: user.id }
-        )
-      )
+      others.map(async (o) => {
+        if (!this.chatGateway.isUserOnline(o.userId)) {
+          await this.notifications.create(
+            o.userId,
+            'NEW_MESSAGE',
+            'Nueva imagen',
+            '📷 Te enviaron una imagen',
+            { conversationId, messageId: msg.id, senderId: user.id }
+          );
+        }
+      })
     );
 
     return msg;
   }
 
-
-
-  /** Marcar como leído */
+  /** Marcar como leído - VERSIÓN MEJORADA */
   async markRead(user: JwtUserPayload, conversationId: number) {
     const updated = await this.prisma.conversationParticipant.update({
       where: { conversationId_userId: { conversationId, userId: user.id } },
       data: { lastReadAt: new Date() },
     });
+
+    // ✨ NUEVO: Emitir lectura por WebSocket
+    this.chatGateway.emitMessageRead(conversationId, user.id, updated.lastReadAt!);
+
     return { ok: true, at: updated.lastReadAt };
   }
 }

@@ -17,7 +17,7 @@ interface AuthenticatedSocket extends Socket {
   userId: number;
 }
 
-@WebSocketGateway({ 
+@WebSocketGateway({
   namespace: '/chat',
   cors: { origin: '*' } // Ajustar en producción
 })
@@ -27,17 +27,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // Tracking de usuarios online: userId -> Set<socketId>
   private onlineUsers = new Map<number, Set<string>>();
-  
+
   // Tracking de typing: conversationId -> Set<userId>
   private typingUsers = new Map<number, Set<number>>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async handleConnection(client: AuthenticatedSocket) {
     try {
       // Extraer userId del token (implementar WsJwtGuard)
       const userId = client.userId; // Asumiendo que WsJwtGuard lo setea
-      
+
       if (!this.onlineUsers.has(userId)) {
         this.onlineUsers.set(userId, new Set());
       }
@@ -55,7 +55,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emitir presencia a contactos
       this.broadcastPresence(userId, 'online');
-      
+
       console.log(`Chat: User ${userId} connected (${client.id})`);
     } catch (error) {
       console.error('Chat connection error:', error);
@@ -65,11 +65,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: AuthenticatedSocket) {
     const userId = client.userId;
-    
+
     const userSockets = this.onlineUsers.get(userId);
     if (userSockets) {
       userSockets.delete(client.id);
-      
+
       // Si no quedan sockets, marcar offline
       if (userSockets.size === 0) {
         this.onlineUsers.delete(userId);
@@ -85,6 +85,53 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server
       .to(`conversation:${conversationId}`)
       .emit('message:new', { conversationId, message });
+  }
+
+
+  @SubscribeMessage('message')
+  async handleMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: number; content: string }
+  ) {
+    const userId = client.userId;
+    const { conversationId, content } = data;
+
+    if (!conversationId || !content) {
+      throw new Error('conversationId et contenu requis.');
+    }
+
+    // 1️⃣ Guardar el mensaje en base de datos
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId,
+        senderId: userId,
+        content, // ✅ tu campo en el schema
+        type: 'TEXT', // opcional, por defecto TEXT
+      },
+      include: {
+        sender: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    // 2️⃣ Actualizar los metadatos de la conversación
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        lastMessageId: message.id,
+      },
+    });
+
+    // 3️⃣ Emitir el nuevo mensaje a todos los sockets del room
+    this.server.to(`conversation:${conversationId}`).emit('message:new', message);
+
+    console.log(
+      `💬 User ${userId} sent message in conversation ${conversationId}: "${content}"`
+    );
+
+    return message;
   }
 
   /** Emitir lectura de mensajes */

@@ -81,7 +81,7 @@ async function bootstrap() {
 
   // Apagado elegante
   app.enableShutdownHooks();
-
+  app.setGlobalPrefix('api');
   // Escuchar
   const port = Number(config.get<string>('PORT')) || 3000;
   await app.listen(port, '0.0.0.0');

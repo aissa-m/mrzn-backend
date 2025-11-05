@@ -121,27 +121,36 @@ model Store {
   @@index([ownerId])
 }
 
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  url       String
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
 model Product {
-  id          Int     @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
   description String?
-  price       Decimal @db.Decimal(10, 2)
+  price       Decimal   @db.Decimal(10, 2)
 
-  storeId Int
-  store   Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId     Int
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  images      ProductImage[]   // 👈 relación 1-N
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  // items en pedidos
-  OrderItem OrderItem[]
-
-  // conversaciones sobre este producto (relación nombrada)
+  OrderItem   OrderItem[]
   conversations Conversation[] @relation("ProductConversations")
 
   @@unique([storeId, name])
   @@index([storeId])
 }
+
 
 model Order {
   id        Int         @id @default(autoincrement())

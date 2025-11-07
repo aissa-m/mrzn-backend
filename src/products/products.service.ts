@@ -9,26 +9,37 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Prisma } from '@prisma/client';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { S3Service } from 'src/s3/s3.service';
 
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
+    private s3Service: S3Service,
   ) { }
 
-  async create(userId: number, dto: CreateProductDto) {
-    const ownsStore = await this.ownership.isStoreOwner(userId, dto.storeId);
-    if (!ownsStore) throw new ForbiddenException('Not the store owner');
+  async create(dto: CreateProductDto, files: Express.Multer.File[]) {
+    // Subir imágenes a S3
+    const uploadedUrls = await Promise.all(
+      (files || []).map((file) => this.s3Service.uploadFile(file)),
+    );
 
-    return this.prisma.product.create({
+    // Crear el producto en la base de datos
+    const product = await this.prisma.product.create({
       data: {
         name: dto.name,
         description: dto.description,
         price: dto.price,
         storeId: dto.storeId,
+        images: {
+          create: uploadedUrls.map((url) => ({ url })),
+        },
       },
+      include: { images: true },
     });
+
+    return product;
   }
 
   async findAllByStore(storeId: number) {

@@ -1,3 +1,4 @@
+// src/products/products.service.ts
 import {
   ForbiddenException,
   Injectable,
@@ -19,22 +20,28 @@ export class ProductsService {
     private s3Service: S3Service,
   ) { }
 
-  async create(dto: CreateProductDto, files: Express.Multer.File[]) {
-    // Subir imágenes a S3
-    const uploadedUrls = await Promise.all(
-      (files || []).map((file) => this.s3Service.uploadFile(file)),
+  async create(userId: number, dto: CreateProductDto, files: Express.Multer.File[]) {
+    // (opcional) validar que userId sea dueño de la storeId u otros checks
+
+    const results = await Promise.allSettled(
+      (files ?? []).map((f) => this.s3Service.uploadFile(f))
     );
 
-    // Crear el producto en la base de datos
+    const uploaded = results
+      .filter(r => r.status === 'fulfilled')
+      .map((r: any) => r.value as { url: string; key: string });
+
+    if ((files?.length ?? 0) > 0 && uploaded.length === 0) {
+      throw new Error('No se pudieron subir las imágenes');
+    }
+
     const product = await this.prisma.product.create({
       data: {
         name: dto.name,
         description: dto.description,
-        price: dto.price,
+        price: new Prisma.Decimal(dto.price), // tu campo es Decimal(10,2)
         storeId: dto.storeId,
-        images: {
-          create: uploadedUrls.map((url) => ({ url })),
-        },
+        images: { create: uploaded.map(({ url }) => ({ url })) },
       },
       include: { images: true },
     });

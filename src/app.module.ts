@@ -27,6 +27,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     ChatModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'uploads'),
+      
       serveRoot: '/uploads',                      
     }),
     NotificationsModule

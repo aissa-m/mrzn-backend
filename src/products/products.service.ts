@@ -1,5 +1,6 @@
 // src/products/products.service.ts
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -21,33 +22,46 @@ export class ProductsService {
   ) { }
 
   async create(userId: number, dto: CreateProductDto, files: Express.Multer.File[]) {
-    // (opcional) validar que userId sea dueño de la storeId u otros checks
-
-    const results = await Promise.allSettled(
-      (files ?? []).map((f) => this.s3Service.uploadFile(f))
-    );
-
-    const uploaded = results
-      .filter(r => r.status === 'fulfilled')
-      .map((r: any) => r.value as { url: string; key: string });
-
-    if ((files?.length ?? 0) > 0 && uploaded.length === 0) {
-      throw new Error('No se pudieron subir las imágenes');
-    }
-
+    // 1) crear el producto primero (sin imágenes)
     const product = await this.prisma.product.create({
       data: {
         name: dto.name,
-        description: dto.description,
-        price: new Prisma.Decimal(dto.price), // tu campo es Decimal(10,2)
-        storeId: dto.storeId,
-        images: { create: uploaded.map(({ url }) => ({ url })) },
+        description: dto.description || null,
+        price: new Prisma.Decimal(String(dto.price)), // acepta "3.50" o 3.5
+        storeId: Number(dto.storeId),                 // 👈 forzamos número
       },
-      include: { images: true },
     });
 
-    return product;
+    // 2) subir imágenes (si hay) a carpeta products/{product.id}
+    const results = await Promise.allSettled(
+      (files ?? []).map((f) => this.s3Service.uploadFile(f, `products/${product.id}`))
+    );
+
+    // normalizar: aceptar tanto string (URL) como {url,key}
+    const uploaded = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map((r) => (typeof r.value === 'string' ? { url: r.value } : r.value));
+
+    // si hubo ficheros y nada subió, avisar (400) en vez de 500
+    if ((files?.length ?? 0) > 0 && uploaded.length === 0) {
+      console.error('S3 upload errors:', results);
+      throw new BadRequestException('No se pudieron subir las imágenes a S3');
+    }
+
+    // 3) guardar las imágenes en BD
+    if (uploaded.length > 0) {
+      await this.prisma.productImage.createMany({
+        data: uploaded.map(({ url }) => ({ productId: product.id, url })),
+      });
+    }
+
+    // 4) devolver el producto con imágenes
+    return this.prisma.product.findUnique({
+      where: { id: product.id },
+      include: { images: true, store: true },
+    });
   }
+
 
   async findAllByStore(storeId: number) {
     return this.prisma.product.findMany({

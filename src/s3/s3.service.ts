@@ -14,7 +14,8 @@ export class S3Service {
   });
 
   async uploadFile(file: Express.Multer.File, folder = 'products') {
-    const key = `${folder}/${Date.now()}-${randomUUID()}-${file.originalname}`;
+    const sanitizedName = file.originalname.replace(/[^\w.-]/g, '_'); // opcional: limpiar nombre
+    const key = `${folder}/${Date.now()}-${randomUUID()}-${sanitizedName}`;
     const bucket = process.env.AWS_S3_BUCKET!;
 
     await this.s3.send(
@@ -23,10 +24,11 @@ export class S3Service {
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
-        ACL: 'public-read', // para acceso público
+        ACL: 'public-read', // si quieres público
       }),
     );
 
-    return `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    const url = `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    return { url, key }; // 👈 ahora devolvemos ambos
   }
 }

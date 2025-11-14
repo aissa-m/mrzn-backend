@@ -119,7 +119,8 @@ export class ProductsService {
     } = q;
 
     const where: Prisma.ProductWhereInput = {
-      ...(storeId ? { storeId } : {}),
+      ...(storeId ? { storeId: Number(storeId) } : {}),
+
       ...(search
         ? {
           OR: [
@@ -128,8 +129,14 @@ export class ProductsService {
           ],
         }
         : {}),
-      ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
-      ...(maxPrice ? { price: { lte: new Prisma.Decimal(maxPrice) } } : {}),
+
+      ...(minPrice
+        ? { price: { gte: new Prisma.Decimal(minPrice) } }
+        : {}),
+
+      ...(maxPrice
+        ? { price: { lte: new Prisma.Decimal(maxPrice) } }
+        : {}),
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -138,9 +145,29 @@ export class ProductsService {
         orderBy: { [sortBy]: sortOrder },
         skip: (page - 1) * limit,
         take: limit,
+        include: {
+          images: true, // 👈 traemos las imágenes relacionadas
+        },
       }),
       this.prisma.product.count({ where }),
     ]);
+
+    // Normalizamos price (Decimal) y las imágenes
+    const safeItems = items.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      price: p.price ? p.price.toNumber() : null, // 👈 fuera el objeto {s,e,d}
+      storeId: p.storeId,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+
+      // Todas las URLs de imágenes
+      images: p.images.map((img) => img.url),
+
+      // Una imagen principal (primera) para el listado
+      mainImage: p.images[0]?.url ?? null,
+    }));
 
     return {
       meta: {
@@ -151,7 +178,7 @@ export class ProductsService {
         sortBy,
         sortOrder,
       },
-      items,
+      items: safeItems,
     };
   }
 }

@@ -71,6 +71,7 @@ model User {
   conversationParticipants ConversationParticipant[]
    // 🔔 notificaciones recibidas
   notifications Notification[]
+  avatarUrl  String?
 }
 
 model PlanLimit {

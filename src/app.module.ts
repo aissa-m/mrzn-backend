@@ -26,10 +26,10 @@ import { NotificationsModule } from './notifications/notifications.module';
     OrdersModule,
     ChatModule,
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'uploads'),      
-      serveRoot: '/uploads',                      
+      rootPath: join(__dirname, '..', 'uploads'),
+      serveRoot: '/uploads',
     }),
-    NotificationsModule
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

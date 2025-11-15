@@ -12,4 +12,27 @@ export class UsersController {
   me(@CurrentUser() user: { id: number }) {
     return this.usersService.getMe(user.id);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/avatar')
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      storage: diskStorage({
+        destination: './uploads/avatars', 
+        filename: (req, file, cb) => {
+          const ext = extname(file.originalname);
+          const fileName = `${req.user.id}-${Date.now()}${ext}`;
+          cb(null, fileName);
+        },
+      }),
+      limits: { fileSize: 2 * 1024 * 1024 },
+    }),
+  )
+  async uploadAvatar(@UploadedFile() file: Express.Multer.File, @Req() req) {
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+
+    const user = await this.usersService.updateAvatar(req.user.id, avatarUrl);
+
+    return user; 
+  }
 }

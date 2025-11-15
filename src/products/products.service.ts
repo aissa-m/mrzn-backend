@@ -20,10 +20,13 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
     private s3Service: S3Service,
-  ) { }
+  ) {}
 
-  async create(userId: number, dto: CreateProductDto, files: Express.Multer.File[]) {
-
+  async create(
+    userId: number,
+    dto: CreateProductDto,
+    files: Express.Multer.File[],
+  ) {
     try {
       // 1) crear el producto primero (sin imágenes)
       const product = await this.prisma.product.create({
@@ -31,18 +34,22 @@ export class ProductsService {
           name: dto.name,
           description: dto.description || null,
           price: new Prisma.Decimal(String(dto.price)), // acepta "3.50" o 3.5
-          storeId: Number(dto.storeId),                 // 👈 forzamos número
+          storeId: Number(dto.storeId), // 👈 forzamos número
         },
       });
 
       // 2) subir imágenes (si hay) a carpeta products/{product.id}
       const results = await Promise.allSettled(
-        (files ?? []).map((f) => this.s3Service.uploadFile(f, `products/${product.id}`))
+        (files ?? []).map((f) =>
+          this.s3Service.uploadFile(f, `products/${product.id}`),
+        ),
       );
 
       // normalizar: aceptar tanto string (URL) como {url,key}
       const uploaded = results
-        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .filter(
+          (r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled',
+        )
         .map((r) => (typeof r.value === 'string' ? { url: r.value } : r.value));
 
       // si hubo ficheros y nada subió, avisar (400) en vez de 500
@@ -63,15 +70,18 @@ export class ProductsService {
         where: { id: product.id },
         include: { images: true, store: true },
       });
-
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Ya existe un producto con ese nombre en esta tienda');
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Ya existe un producto con ese nombre en esta tienda',
+        );
       }
       throw e;
     }
   }
-
 
   async findAllByStore(storeId: number) {
     return this.prisma.product.findMany({
@@ -123,20 +133,16 @@ export class ProductsService {
 
       ...(search
         ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-          ],
-        }
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { description: { contains: search, mode: 'insensitive' } },
+            ],
+          }
         : {}),
 
-      ...(minPrice
-        ? { price: { gte: new Prisma.Decimal(minPrice) } }
-        : {}),
+      ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
 
-      ...(maxPrice
-        ? { price: { lte: new Prisma.Decimal(maxPrice) } }
-        : {}),
+      ...(maxPrice ? { price: { lte: new Prisma.Decimal(maxPrice) } } : {}),
     };
 
     const [items, total] = await this.prisma.$transaction([

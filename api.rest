@@ -1,0 +1,135 @@
+#############################################
+# 1) REGISTER USERS
+#############################################
+
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Admin 1",
+  "email": "admin1@email.com",
+  "password": "123456"
+}
+###
+
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Owner 1",
+  "email": "owner1@email.com",
+  "password": "123456"
+}
+###
+
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "User 1",
+  "email": "user1@email.com",
+  "password": "123456"
+}
+###
+
+
+#############################################
+# 2) LOGIN (owner)
+#############################################
+
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "owner1@email.com",
+  "password": "123456"
+}
+###
+
+
+#############################################
+# ⚠️  Guarda el token JWT manualmente aquí:
+#############################################
+
+@token = PON_AQUÍ_TU_TOKEN
+###
+
+
+#############################################
+# 3) CREATE STORE (OWNER)
+#############################################
+
+POST http://localhost:3000/api/stores
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "Tienda Owner 1",
+  "ownerId": 2
+}
+###
+
+
+#############################################
+# 4) CREATE PRODUCT (sin imágenes)
+#############################################
+
+POST http://localhost:3000/api/products
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "Producto de prueba",
+  "description": "Producto sin imágenes",
+  "price": 9.99,
+  "storeId": 1
+}
+###
+
+
+#############################################
+# 5) CREATE PRODUCT (CON IMÁGENES)
+#    ⚠️ Requiere rutas ABSOLUTAS reales
+#############################################
+
+POST http://localhost:3000/api/products
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----MAURI
+
+------MAURI
+Content-Disposition: form-data; name="name"
+
+Producto con imágenes
+------MAURI
+Content-Disposition: form-data; name="description"
+
+Producto de prueba con fotos
+------MAURI
+Content-Disposition: form-data; name="price"
+
+12.50
+------MAURI
+Content-Disposition: form-data; name="storeId"
+
+1
+------MAURI
+Content-Disposition: form-data; name="images"; filename="prod1a.jpg"
+Content-Type: image/jpeg
+
+< C:/Users/Usuario/Desktop/Proyectos/Maurizone/images/prod1a.jpg
+------MAURI
+Content-Disposition: form-data; name="images"; filename="prod1b.jpg"
+Content-Type: image/jpeg
+
+< C:/Users/Usuario/Desktop/Proyectos/Maurizone/images/prod1b.jpg
+------MAURI--
+###
+
+
+#############################################
+# 6) LIST PRODUCTS
+#############################################
+
+GET http://localhost:3000/api/products
+Authorization: Bearer {{token}}
+###

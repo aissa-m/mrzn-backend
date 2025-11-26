@@ -20,7 +20,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
     private s3Service: S3Service,
-  ) {}
+  ) { }
 
   async create(
     userId: number,
@@ -84,14 +84,32 @@ export class ProductsService {
   }
 
   async findAllByStore(storeId: number) {
-    return this.prisma.product.findMany({
+    const rows = await this.prisma.product.findMany({
       where: { storeId },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        images: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
     });
+
+    // 🔥 Convertimos Decimal → number antes de devolver
+    return rows.map((p) => ({
+      ...p,
+      price: (p.price as any).toNumber
+        ? (p.price as any).toNumber()
+        : Number(p.price),
+    }));
   }
 
+
   async findOne(id: number) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id }, include: {
+        images: true,
+      },
+    });
     if (!product) throw new NotFoundException('Product not found');
     return product;
   }
@@ -133,11 +151,11 @@ export class ProductsService {
 
       ...(search
         ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { description: { contains: search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
 
       ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
@@ -152,7 +170,7 @@ export class ProductsService {
         skip: (page - 1) * limit,
         take: limit,
         include: {
-          images: true, // 👈 traemos las imágenes relacionadas
+          images: true,
         },
       }),
       this.prisma.product.count({ where }),
@@ -163,15 +181,14 @@ export class ProductsService {
       id: p.id,
       name: p.name,
       description: p.description,
-      price: p.price ? p.price.toNumber() : null, // 👈 fuera el objeto {s,e,d}
+      price: p.price ? p.price.toNumber() : null,
       storeId: p.storeId,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
 
-      // Todas las URLs de imágenes
+
       images: p.images.map((img) => img.url),
 
-      // Una imagen principal (primera) para el listado
       mainImage: p.images[0]?.url ?? null,
     }));
 

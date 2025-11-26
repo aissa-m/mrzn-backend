@@ -13,7 +13,9 @@ export class UsersService {
         name: true,
         email: true,
         role: true,
+        avatarUrl: true,
         createdAt: true,
+        stores: true,
       },
     });
   }

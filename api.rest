@@ -133,3 +133,5 @@ Content-Type: image/jpeg
 GET http://localhost:3000/api/products
 Authorization: Bearer {{token}}
 ###
+
+Recordatorio para modoficar las rutas de pruebas

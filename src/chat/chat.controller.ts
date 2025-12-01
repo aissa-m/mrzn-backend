@@ -1,7 +1,17 @@
 // src/chat/chat.controller.ts
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards, Headers,
-  UploadedFile, UseInterceptors, BadRequestException
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  UseGuards,
+  Headers,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -14,6 +24,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { randomBytes } from 'crypto';
+import { Delete } from '@nestjs/common'; // arriba, si no está ya
 import * as fs from 'fs';
 
 function ensureDir(path: string) {
@@ -33,7 +44,8 @@ const storage = diskStorage({
 
 function fileFilter(_req: any, file: Express.Multer.File, cb: any) {
   const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowed.includes(file.mimetype)) return cb(new BadRequestException('Invalid image type'), false);
+  if (!allowed.includes(file.mimetype))
+    return cb(new BadRequestException('Invalid image type'), false);
   cb(null, true);
 }
 
@@ -51,10 +63,7 @@ export class ChatController {
   }
 
   @Get('conversations')
-  list(
-    @CurrentUser() user: JwtUserPayload,
-    @Query() page: PageDto,
-  ) {
+  list(@CurrentUser() user: JwtUserPayload, @Query() page: PageDto) {
     return this.chat.listConversations(user, page);
   }
 
@@ -68,10 +77,7 @@ export class ChatController {
   }
 
   @Post('messages')
-  sendText(
-    @CurrentUser() user: JwtUserPayload,
-    @Body() dto: SendMessageDto,
-  ) {
+  sendText(@CurrentUser() user: JwtUserPayload, @Body() dto: SendMessageDto) {
     return this.chat.sendText(user, dto);
   }
 
@@ -84,11 +90,13 @@ export class ChatController {
   }
 
   @Post('conversations/:id/upload')
-  @UseInterceptors(FileInterceptor('file', {
-    storage,
-    fileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage,
+      fileFilter,
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
   async uploadImage(
     @CurrentUser() user: JwtUserPayload,
     @Param('id', ParseIntPipe) conversationId: number,
@@ -102,5 +110,13 @@ export class ChatController {
       mimeType: file.mimetype,
       sizeBytes: file.size,
     });
+  }
+
+  @Delete('conversations/:id')
+  deleteConversation(
+    @CurrentUser() user: JwtUserPayload,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.chat.deleteConversation(user, id);
   }
 }

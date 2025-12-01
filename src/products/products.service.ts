@@ -20,7 +20,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
     private s3Service: S3Service,
-  ) { }
+  ) {}
 
   async create(
     userId: number,
@@ -68,7 +68,15 @@ export class ProductsService {
       // 4) devolver el producto con imágenes
       return this.prisma.product.findUnique({
         where: { id: product.id },
-        include: { images: true, store: true },
+        include: {
+          images: true,
+          store: {
+            select: {
+              id: true,
+              ownerId: true,
+            },
+          },
+        },
       });
     } catch (e) {
       if (
@@ -103,15 +111,30 @@ export class ProductsService {
     }));
   }
 
-
   async findOne(id: number) {
     const product = await this.prisma.product.findUnique({
-      where: { id }, include: {
+      where: { id },
+      include: {
         images: true,
+        store: {
+          select: {
+            id: true,
+            ownerId: true,
+          },
+        },
       },
     });
-    if (!product) throw new NotFoundException('Product not found');
-    return product;
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return {
+      ...product,
+      price: product.price
+        ? ((product.price as any).toNumber?.() ?? Number(product.price))
+        : null,
+    };
   }
 
   async update(userId: number, id: number, dto: UpdateProductDto) {
@@ -151,11 +174,11 @@ export class ProductsService {
 
       ...(search
         ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-          ],
-        }
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { description: { contains: search, mode: 'insensitive' } },
+            ],
+          }
         : {}),
 
       ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
@@ -171,6 +194,12 @@ export class ProductsService {
         take: limit,
         include: {
           images: true,
+          store: {
+            select: {
+              id: true,
+              ownerId: true, // 👈 aquí está el vendedor
+            },
+          },
         },
       }),
       this.prisma.product.count({ where }),
@@ -185,7 +214,6 @@ export class ProductsService {
       storeId: p.storeId,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
-
 
       images: p.images.map((img) => img.url),
 

@@ -1,5 +1,12 @@
 // src/chat/chat.service.ts
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -21,8 +28,9 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
-    private readonly chatGateway: ChatGateway, // ✨ NUEVO
-  ) { }
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   /** Crear/abrir conversación 1:1 (si existe, la reutiliza) */
   async openConversation(user: JwtUserPayload, dto: CreateConversationDto) {
@@ -36,6 +44,7 @@ export class ChatService {
         participants: { every: { userId: { in: [user.id, dto.otherUserId] } } },
         storeId: dto.storeId ?? undefined,
         orderId: dto.orderId ?? undefined,
+        productId: dto.productId ?? null,
       },
       include: { participants: true },
     });
@@ -47,6 +56,7 @@ export class ChatService {
       data: {
         storeId: dto.storeId,
         orderId: dto.orderId,
+        productId: dto.productId ?? null,
         participants: {
           create: [
             { userId: user.id, role: 'BUYER', lastReadAt: new Date() },
@@ -57,7 +67,6 @@ export class ChatService {
     });
   }
 
-  /** Listar mis conversaciones con último mensaje y no leídos */
   async listConversations(user: JwtUserPayload, pageDto: PageDto) {
     const { page = 1, pageSize = 20 } = pageDto;
 
@@ -71,13 +80,27 @@ export class ChatService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          participants: { include: { user: { select: { id: true, name: true, email: true } } } },
+          participants: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
           lastMessage: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              // si quieres la imagen principal:
+              // images: {
+              //   select: { url: true },
+              //   take: 1,
+              // },
+            },
+          },
         },
       }),
     ]);
 
-    // calcular no leídos por conversación
     const result = await Promise.all(
       convos.map(async (c) => {
         const me = c.participants.find((p) => p.userId === user.id);
@@ -89,7 +112,11 @@ export class ChatService {
             NOT: { senderId: user.id },
           },
         });
-        return { ...c, unread };
+
+        return {
+          ...c,
+          unread,
+        };
       }),
     );
 
@@ -100,7 +127,11 @@ export class ChatService {
   }
 
   /** Ver mensajes con paginación por cursor */
-  async getMessages(user: JwtUserPayload, conversationId: number, cursorDto: CursorDto) {
+  async getMessages(
+    user: JwtUserPayload,
+    conversationId: number,
+    cursorDto: CursorDto,
+  ) {
     // acceso
     const part = await this.prisma.conversationParticipant.findUnique({
       where: { conversationId_userId: { conversationId, userId: user.id } },
@@ -115,10 +146,19 @@ export class ChatService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take,
       ...(cursorParsed && {
-        cursor: { conversationId_createdAt_id: { conversationId, createdAt: cursorParsed.createdAt, id: cursorParsed.id } } as any,
+        cursor: {
+          conversationId_createdAt_id: {
+            conversationId,
+            createdAt: cursorParsed.createdAt,
+            id: cursorParsed.id,
+          },
+        } as any,
         skip: 1,
       }),
-      include: { attachments: true, sender: { select: { id: true, name: true } } },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true } },
+      },
     });
 
     const nextCursor = messages.length
@@ -131,7 +171,12 @@ export class ChatService {
   /** Enviar texto - VERSIÓN MEJORADA */
   async sendText(user: JwtUserPayload, dto: SendMessageDto) {
     const part = await this.prisma.conversationParticipant.findUnique({
-      where: { conversationId_userId: { conversationId: dto.conversationId, userId: user.id } },
+      where: {
+        conversationId_userId: {
+          conversationId: dto.conversationId,
+          userId: user.id,
+        },
+      },
     });
     if (!part) throw new ForbiddenException('Not a participant');
 
@@ -144,7 +189,7 @@ export class ChatService {
       },
       include: {
         sender: { select: { id: true, name: true, email: true } }, // ✨ Incluir sender para WS
-        attachments: true
+        attachments: true,
       },
     });
 
@@ -171,10 +216,14 @@ export class ChatService {
             'NEW_MESSAGE',
             'Nuevo mensaje',
             msg.content ?? '📎 Has recibido un mensaje',
-            { conversationId: dto.conversationId, messageId: msg.id, senderId: user.id }
+            {
+              conversationId: dto.conversationId,
+              messageId: msg.id,
+              senderId: user.id,
+            },
           );
         }
-      })
+      }),
     );
 
     return msg;
@@ -184,7 +233,13 @@ export class ChatService {
   async attachImage(
     user: JwtUserPayload,
     conversationId: number,
-    fileInfo: { url: string; mimeType: string; sizeBytes: number; width?: number; height?: number }
+    fileInfo: {
+      url: string;
+      mimeType: string;
+      sizeBytes: number;
+      width?: number;
+      height?: number;
+    },
   ) {
     const part = await this.prisma.conversationParticipant.findUnique({
       where: { conversationId_userId: { conversationId, userId: user.id } },
@@ -208,7 +263,7 @@ export class ChatService {
       },
       include: {
         attachments: true,
-        sender: { select: { id: true, name: true, email: true } } // ✨ Para WS
+        sender: { select: { id: true, name: true, email: true } }, // ✨ Para WS
       },
     });
 
@@ -234,10 +289,10 @@ export class ChatService {
             'NEW_MESSAGE',
             'Nueva imagen',
             '📷 Te enviaron una imagen',
-            { conversationId, messageId: msg.id, senderId: user.id }
+            { conversationId, messageId: msg.id, senderId: user.id },
           );
         }
-      })
+      }),
     );
 
     return msg;
@@ -251,8 +306,35 @@ export class ChatService {
     });
 
     // ✨ NUEVO: Emitir lectura por WebSocket
-    this.chatGateway.emitMessageRead(conversationId, user.id, updated.lastReadAt!);
+    this.chatGateway.emitMessageRead(
+      conversationId,
+      user.id,
+      updated.lastReadAt!,
+    );
 
     return { ok: true, at: updated.lastReadAt };
+  }
+
+  async deleteConversation(user: JwtUserPayload, conversationId: number) {
+    // 1. Verificar acceso
+    const part = await this.prisma.conversationParticipant.findUnique({
+      where: {
+        conversationId_userId: {
+          conversationId,
+          userId: user.id,
+        },
+      },
+    });
+
+    if (!part) {
+      throw new ForbiddenException('Not a participant of this conversation');
+    }
+
+    // 2. Eliminar conversación (cascada elimina mensajes, attachments, etc.)
+    await this.prisma.conversation.delete({
+      where: { id: conversationId },
+    });
+
+    return { ok: true };
   }
 }

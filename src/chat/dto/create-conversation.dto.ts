@@ -2,12 +2,21 @@
 import { IsInt, IsOptional, IsPositive } from 'class-validator';
 
 export class CreateConversationDto {
-  @IsInt() @IsPositive()
+  @IsInt()
+  @IsPositive()
   otherUserId!: number;
 
-  @IsOptional() @IsInt() @IsPositive()
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
   storeId?: number;
 
-  @IsOptional() @IsInt() @IsPositive()
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
   orderId?: number;
+
+  @IsOptional()
+  @IsInt()
+  productId?: number; // 👈 nuevo
 }

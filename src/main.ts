@@ -25,7 +25,12 @@ async function bootstrap() {
   app.enableVersioning();
 
   // Seguridad y rendimiento
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: false,
+    }),
+  );
+
   app.use(compression());
   app.use(cookieParser());
 

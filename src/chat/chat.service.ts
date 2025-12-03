@@ -13,7 +13,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { JwtUserPayload } from '../auth/types';
 import { CursorDto, PageDto } from './dto/pagination.dto';
 import { NotificationsService } from 'src/notifications/notifications.service';
-import { ChatGateway } from './chat.gateway'; // ✨ NUEVO
+import { ChatGateway } from './chat.gateway';
 
 function parseCursor(cursor?: string) {
   if (!cursor) return null;
@@ -229,8 +229,8 @@ export class ChatService {
     return msg;
   }
 
-  /** Subir imagen - VERSIÓN MEJORADA */
-  async attachImage(
+  /** Adjuntar archivo (imagen o documento) */
+  async attachFile(
     user: JwtUserPayload,
     conversationId: number,
     fileInfo: {
@@ -239,6 +239,7 @@ export class ChatService {
       sizeBytes: number;
       width?: number;
       height?: number;
+      originalName?: string;
     },
   ) {
     const part = await this.prisma.conversationParticipant.findUnique({
@@ -246,11 +247,14 @@ export class ChatService {
     });
     if (!part) throw new ForbiddenException('Not a participant');
 
+    const isImage = fileInfo.mimeType.startsWith('image/');
+
     const msg = await this.prisma.message.create({
       data: {
         conversationId,
         senderId: user.id,
         type: 'IMAGE',
+        content: isImage ? null : (fileInfo.originalName ?? 'file'), // para mostrar nombre en UI
         attachments: {
           create: {
             url: fileInfo.url,
@@ -258,12 +262,13 @@ export class ChatService {
             sizeBytes: fileInfo.sizeBytes,
             width: fileInfo.width,
             height: fileInfo.height,
+            // originalName: fileInfo.originalName,
           },
         },
       },
       include: {
         attachments: true,
-        sender: { select: { id: true, name: true, email: true } }, // ✨ Para WS
+        sender: { select: { id: true, name: true, email: true } },
       },
     });
 
@@ -272,10 +277,8 @@ export class ChatService {
       data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
     });
 
-    // ✨ NUEVO: Emitir por WebSocket
     this.chatGateway.emitNewMessage(conversationId, msg);
 
-    // 🔔 Notificar SOLO offline
     const others = await this.prisma.conversationParticipant.findMany({
       where: { conversationId, userId: { not: user.id } },
       select: { userId: true },
@@ -287,8 +290,8 @@ export class ChatService {
           await this.notifications.create(
             o.userId,
             'NEW_MESSAGE',
-            'Nueva imagen',
-            '📷 Te enviaron una imagen',
+            isImage ? 'Nueva imagen' : 'Nuevo archivo',
+            isImage ? '📷' : '📎',
             { conversationId, messageId: msg.id, senderId: user.id },
           );
         }
@@ -296,6 +299,90 @@ export class ChatService {
     );
 
     return msg;
+  }
+
+  /** Subir imagen - VERSIÓN MEJORADA */
+  // async attachImage(
+  //   user: JwtUserPayload,
+  //   conversationId: number,
+  //   fileInfo: {
+  //     url: string;
+  //     mimeType: string;
+  //     sizeBytes: number;
+  //     width?: number;
+  //     height?: number;
+  //   },
+  // ) {
+  //   const part = await this.prisma.conversationParticipant.findUnique({
+  //     where: { conversationId_userId: { conversationId, userId: user.id } },
+  //   });
+  //   if (!part) throw new ForbiddenException('Not a participant');
+
+  //   const msg = await this.prisma.message.create({
+  //     data: {
+  //       conversationId,
+  //       senderId: user.id,
+  //       type: 'IMAGE',
+  //       attachments: {
+  //         create: {
+  //           url: fileInfo.url,
+  //           mimeType: fileInfo.mimeType,
+  //           sizeBytes: fileInfo.sizeBytes,
+  //           width: fileInfo.width,
+  //           height: fileInfo.height,
+  //         },
+  //       },
+  //     },
+  //     include: {
+  //       attachments: true,
+  //       sender: { select: { id: true, name: true, email: true } }, // ✨ Para WS
+  //     },
+  //   });
+
+  //   await this.prisma.conversation.update({
+  //     where: { id: conversationId },
+  //     data: { lastMessageAt: msg.createdAt, lastMessageId: msg.id },
+  //   });
+
+  //   // ✨ NUEVO: Emitir por WebSocket
+  //   this.chatGateway.emitNewMessage(conversationId, msg);
+
+  //   // 🔔 Notificar SOLO offline
+  //   const others = await this.prisma.conversationParticipant.findMany({
+  //     where: { conversationId, userId: { not: user.id } },
+  //     select: { userId: true },
+  //   });
+
+  //   await Promise.all(
+  //     others.map(async (o) => {
+  //       if (!this.chatGateway.isUserOnline(o.userId)) {
+  //         await this.notifications.create(
+  //           o.userId,
+  //           'NEW_MESSAGE',
+  //           'Nueva imagen',
+  //           '📷 Te enviaron una imagen',
+  //           { conversationId, messageId: msg.id, senderId: user.id },
+  //         );
+  //       }
+  //     }),
+  //   );
+
+  //   return msg;
+  // }
+
+  /** Mantener compatibilidad para imágenes */
+  async attachImage(
+    user: JwtUserPayload,
+    conversationId: number,
+    fileInfo: {
+      url: string;
+      mimeType: string;
+      sizeBytes: number;
+      width?: number;
+      height?: number;
+    },
+  ) {
+    return this.attachFile(user, conversationId, fileInfo);
   }
 
   /** Marcar como leído - VERSIÓN MEJORADA */

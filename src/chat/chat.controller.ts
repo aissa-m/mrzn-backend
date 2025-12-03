@@ -8,10 +8,10 @@ import {
   Post,
   Query,
   UseGuards,
-  Headers,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  Delete,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -24,7 +24,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { randomBytes } from 'crypto';
-import { Delete } from '@nestjs/common'; // arriba, si no está ya
 import * as fs from 'fs';
 
 function ensureDir(path: string) {
@@ -42,10 +41,37 @@ const storage = diskStorage({
   },
 });
 
-function fileFilter(_req: any, file: Express.Multer.File, cb: any) {
-  const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowed.includes(file.mimetype))
+// Solo imágenes (para el endpoint antiguo)
+function imageFileFilter(_req: any, file: Express.Multer.File, cb: any) {
+  const allowed = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/heic',
+    'image/heif',
+  ];
+
+  if (!allowed.includes(file.mimetype)) {
     return cb(new BadRequestException('Invalid image type'), false);
+  }
+  cb(null, true);
+}
+
+// Imágenes + algunos documentos (para attachments)
+function attachmentFileFilter(_req: any, file: Express.Multer.File, cb: any) {
+  const allowed = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ];
+  if (!allowed.includes(file.mimetype)) {
+    return cb(new BadRequestException('Unsupported file type'), false);
+  }
   cb(null, true);
 }
 
@@ -89,11 +115,12 @@ export class ChatController {
     return this.chat.markRead(user, id);
   }
 
+  /** 🔵 Endpoint antiguo, solo imagen, local */
   @Post('conversations/:id/upload')
   @UseInterceptors(
     FileInterceptor('file', {
       storage,
-      fileFilter,
+      fileFilter: imageFileFilter,
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
@@ -103,8 +130,9 @@ export class ChatController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
-    // URL pública servida por Nest (ver ajuste en main.ts más abajo)
+
     const url = `/uploads/chat/${file.filename}`;
+
     return this.chat.attachImage(user, conversationId, {
       url,
       mimeType: file.mimetype,
@@ -118,5 +146,31 @@ export class ChatController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.chat.deleteConversation(user, id);
+  }
+
+  /** 🟢 Nuevo endpoint genérico: imágenes + documentos */
+  @Post(':id/attachments')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage,
+      fileFilter: attachmentFileFilter,
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadAttachment(
+    @CurrentUser() user: JwtUserPayload,
+    @Param('id', ParseIntPipe) conversationId: number,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+
+    const url = `/uploads/chat/${file.filename}`;
+
+    return this.chat.attachFile(user, conversationId, {
+      url,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      originalName: file.originalname,
+    });
   }
 }

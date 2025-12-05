@@ -88,6 +88,15 @@ export class ChatController {
     return this.chat.openConversation(user, dto);
   }
 
+  @Get('store/:storeId/conversations')
+  listByStore(
+    @CurrentUser() user: JwtUserPayload,
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Query() page: PageDto,
+  ) {
+    return this.chat.listConversationsByStore(user, storeId, page);
+  }
+
   @Get('conversations')
   list(@CurrentUser() user: JwtUserPayload, @Query() page: PageDto) {
     return this.chat.listConversations(user, page);

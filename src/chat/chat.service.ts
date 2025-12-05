@@ -424,4 +424,89 @@ export class ChatService {
 
     return { ok: true };
   }
+
+  async listConversationsByStore(
+    user: JwtUserPayload,
+    storeId: number,
+    pageDto: PageDto,
+  ) {
+    const { page = 1, pageSize = 20 } = pageDto;
+
+    // 1. Verificar que esta tienda pertenece al usuario (owner)
+    const store = await this.prisma.store.findFirst({
+      where: {
+        id: storeId,
+        ownerId: user.id,
+      },
+      select: { id: true },
+    });
+
+    if (!store) {
+      throw new ForbiddenException('Not owner of this store');
+    }
+
+    // 2. Buscar conversaciones de esa tienda en las que participe el usuario
+    const [total, convos] = await this.prisma.$transaction([
+      this.prisma.conversation.count({
+        where: {
+          storeId,
+          participants: { some: { userId: user.id } },
+        },
+      }),
+      this.prisma.conversation.findMany({
+        where: {
+          storeId,
+          participants: { some: { userId: user.id } },
+        },
+        orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          participants: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+          lastMessage: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    // 3. Calcular "unread" igual que en listConversations
+    const result = await Promise.all(
+      convos.map(async (c) => {
+        const me = c.participants.find((p) => p.userId === user.id);
+        const lastReadAt = me?.lastReadAt ?? new Date(0);
+
+        const unread = await this.prisma.message.count({
+          where: {
+            conversationId: c.id,
+            createdAt: { gt: lastReadAt },
+            NOT: { senderId: user.id },
+          },
+        });
+
+        return {
+          ...c,
+          unread,
+        };
+      }),
+    );
+
+    return {
+      data: result,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        pages: Math.ceil(total / pageSize),
+      },
+    };
+  }
 }

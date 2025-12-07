@@ -25,7 +25,7 @@ interface AuthenticatedSocket extends Socket {
   cors: {
     origin: process.env.CHAT_WS_ORIGINS?.split(',')
       .map((o) => o.trim())
-      .filter(Boolean) ?? ['http://localhost:3000'],
+      .filter(Boolean) ?? ['http://192.168.1.129:3000'],
   },
 })
 @UseGuards(WsJwtGuard)

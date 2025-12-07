@@ -16,7 +16,7 @@ import * as mime from 'mime';
 export class S3Controller {
   constructor(private readonly s3Service: S3Service) {}
 
-  @Post('upload') 
+  @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async upload(
     @UploadedFile() file: Express.Multer.File,

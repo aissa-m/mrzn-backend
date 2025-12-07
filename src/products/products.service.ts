@@ -14,6 +14,8 @@ import { Prisma } from '@prisma/client';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { S3Service } from 'src/s3/s3.service';
 
+type UploadResult = { url: string; key: string };
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -28,44 +30,55 @@ export class ProductsService {
     files: Express.Multer.File[],
   ) {
     try {
-      // 1) crear el producto primero (sin imágenes)
+      // (Opcional) validar que la tienda pertenece al usuario o que es admin.
+      // Aquí asumo que el guard de rol + lógica previa ya controla eso.
+
+      // 1) Crear el producto primero (sin imágenes)
       const product = await this.prisma.product.create({
         data: {
-          name: dto.name,
-          description: dto.description || null,
+          name: dto.name.trim(),
+          description: dto.description?.trim() || null,
           price: new Prisma.Decimal(String(dto.price)), // acepta "3.50" o 3.5
-          storeId: Number(dto.storeId), // 👈 forzamos número
+          storeId: Number(dto.storeId),
         },
       });
 
-      // 2) subir imágenes (si hay) a carpeta products/{product.id}
-      const results = await Promise.allSettled(
+      // 2) Subir imágenes (si hay) a carpeta products/{product.id}
+      const results = await Promise.allSettled<UploadResult>(
         (files ?? []).map((f) =>
           this.s3Service.uploadFile(f, `products/${product.id}`),
         ),
       );
 
-      // normalizar: aceptar tanto string (URL) como {url,key}
-      const uploaded = results
-        .filter(
-          (r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled',
-        )
-        .map((r) => (typeof r.value === 'string' ? { url: r.value } : r.value));
+      console.log(
+        'PRODUCT CREATE - uploaded results:',
+        results.map((r) => (r.status === 'fulfilled' ? r.value : r)),
+      );
 
-      // si hubo ficheros y nada subió, avisar (400) en vez de 500
+      const uploaded: UploadResult[] = results
+        .filter(
+          (r): r is PromiseFulfilledResult<UploadResult> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value);
+
+      // Si hubo ficheros y nada subió, avisar (400) en vez de 500
       if ((files?.length ?? 0) > 0 && uploaded.length === 0) {
         console.error('S3 upload errors:', results);
         throw new BadRequestException('No se pudieron subir las imágenes a S3');
       }
 
-      // 3) guardar las imágenes en BD
+      // 3) Guardar las imágenes en BD
       if (uploaded.length > 0) {
         await this.prisma.productImage.createMany({
-          data: uploaded.map(({ url }) => ({ productId: product.id, url })),
+          data: uploaded.map(({ url }) => ({
+            productId: product.id,
+            url,
+          })),
         });
       }
 
-      // 4) devolver el producto con imágenes
+      // 4) Devolver el producto con imágenes y tienda
       return this.prisma.product.findUnique({
         where: { id: product.id },
         include: {
@@ -137,15 +150,117 @@ export class ProductsService {
     };
   }
 
-  async update(userId: number, id: number, dto: UpdateProductDto) {
-    const product = await this.findOne(id);
+  async update(
+    userId: number,
+    id: number,
+    dto: UpdateProductDto,
+    files: Express.Multer.File[] = [],
+  ) {
+    console.log('PATCH body dto:', dto, 'files:', files?.length);
+
+    // 1) Comprobar que el producto existe y que es del owner
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { images: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
     const owns = await this.ownership.isStoreOwner(userId, product.storeId);
     if (!owns) throw new ForbiddenException('Not the store owner');
 
-    return this.prisma.product.update({
+    // 2) Preparar datos básicos a actualizar
+    const data: Prisma.ProductUpdateInput = {};
+
+    if (dto.name !== undefined) {
+      data.name = dto.name;
+    }
+
+    if (dto.description !== undefined) {
+      data.description = dto.description || null;
+    }
+
+    if (dto.price !== undefined) {
+      data.price = new Prisma.Decimal(String(dto.price));
+    }
+
+    // 3) Aplicar update de datos básicos
+    await this.prisma.product.update({
       where: { id },
-      data: { ...dto },
+      data,
     });
+
+    // 4) Borrar imágenes marcadas (solo de este producto)
+    let removeIds: number[] = [];
+
+    if (dto.removeImageIds !== undefined) {
+      const raw = dto.removeImageIds;
+
+      // Puede venir como "1" | ["1", "2"] | [1, 2]
+      const arr = Array.isArray(raw) ? raw : [raw];
+
+      removeIds = arr.map((v) => Number(v)).filter((n) => !Number.isNaN(n));
+    }
+
+    if (removeIds.length > 0) {
+      await this.prisma.productImage.deleteMany({
+        where: {
+          id: { in: removeIds },
+          productId: id,
+        },
+      });
+    }
+
+    // 5) Subir nuevas imágenes (si hay)
+    if (files && files.length > 0) {
+      const results = await Promise.allSettled(
+        files.map((f) => this.s3Service.uploadFile(f, `products/${id}`)),
+      );
+
+      const uploaded = results
+        .filter(
+          (r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled',
+        )
+        .map((r) => (typeof r.value === 'string' ? { url: r.value } : r.value));
+
+      if (files.length > 0 && uploaded.length === 0) {
+        console.error('S3 upload errors (update):', results);
+        throw new BadRequestException('No se pudieron subir las imágenes a S3');
+      }
+
+      if (uploaded.length > 0) {
+        await this.prisma.productImage.createMany({
+          data: uploaded.map(({ url }) => ({ productId: id, url })),
+        });
+      }
+    }
+
+    // 6) Devolver producto actualizado con imágenes
+    const updated = await this.prisma.product.findUnique({
+      where: { id },
+      include: {
+        images: true,
+        store: {
+          select: {
+            id: true,
+            ownerId: true,
+          },
+        },
+      },
+    });
+
+    if (!updated) {
+      throw new NotFoundException('Product not found after update');
+    }
+
+    return {
+      ...updated,
+      price: updated.price
+        ? ((updated.price as any).toNumber?.() ?? Number(updated.price))
+        : null,
+    };
   }
 
   async remove(userId: number, id: number) {

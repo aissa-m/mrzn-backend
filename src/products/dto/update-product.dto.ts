@@ -1,18 +1,26 @@
 // src/products/dto/update-product.dto.ts
-import { IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateProductDto {
-  @IsString()
   @IsOptional()
-  @MaxLength(160)
+  @IsString()
   name?: string;
 
-  @IsString()
   @IsOptional()
-  @MaxLength(1000)
+  @IsString()
   description?: string;
 
-  @IsPositive()
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   price?: number;
+
+  // ⚠️ OJO: sin @IsArray, lo normalizaremos a mano en el service
+  @IsOptional()
+  removeImageIds?: (number | string)[]; // puede llegar como string o string[]
+
+  // 👇 Campo "dummy" para que ValidationPipe no se queje de images en multipart
+  @IsOptional()
+  images?: any; // no lo usamos, los archivos vienen en @UploadedFiles()
 }

@@ -74,7 +74,7 @@ export class ProductsController {
     @Body() dto: CreateProductDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    console.log('CREATE PRODUCT - files length:', files?.length ?? 0);
+    // console.log('CREATE PRODUCT - files length:', files?.length ?? 0);
     const userId = Number(user.id);
     return this.productsService.create(userId, dto, files ?? []);
   }

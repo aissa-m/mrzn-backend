@@ -72,7 +72,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emitir presencia a contactos
       this.broadcastPresence(userId, 'online');
 
-      console.log(`Chat: User ${userId} connected (${client.id})`);
+      // console.log(`Chat: User ${userId} connected (${client.id})`);
     } catch (error) {
       console.error('Chat connection error:', error);
       client.disconnect();
@@ -105,7 +105,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     });
 
-    console.log(`Chat: User ${userId} disconnected (${client.id})`);
+    // console.log(`Chat: User ${userId} disconnected (${client.id})`);
   }
 
   /** Emitir nuevo mensaje a participantes */

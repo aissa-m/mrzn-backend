@@ -50,10 +50,10 @@ export class ProductsService {
         ),
       );
 
-      console.log(
-        'PRODUCT CREATE - uploaded results:',
-        results.map((r) => (r.status === 'fulfilled' ? r.value : r)),
-      );
+      // console.log(
+      //   'PRODUCT CREATE - uploaded results:',
+      //   results.map((r) => (r.status === 'fulfilled' ? r.value : r)),
+      // );
 
       const uploaded: UploadResult[] = results
         .filter(
@@ -156,7 +156,7 @@ export class ProductsService {
     dto: UpdateProductDto,
     files: Express.Multer.File[] = [],
   ) {
-    console.log('PATCH body dto:', dto, 'files:', files?.length);
+    // console.log('PATCH body dto:', dto, 'files:', files?.length);
 
     // 1) Comprobar que el producto existe y que es del owner
     const product = await this.prisma.product.findUnique({

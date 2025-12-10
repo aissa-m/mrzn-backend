@@ -13,6 +13,7 @@ import { ChatModule } from './chat/chat.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { NotificationsModule } from './notifications/notifications.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       serveRoot: '/uploads',
     }),
     NotificationsModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

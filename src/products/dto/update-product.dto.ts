@@ -1,5 +1,5 @@
 // src/products/dto/update-product.dto.ts
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsArray, IsInt, IsPositive } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateProductDto {
@@ -23,4 +23,11 @@ export class UpdateProductDto {
   // 👇 Campo "dummy" para que ValidationPipe no se queje de images en multipart
   @IsOptional()
   images?: any; // no lo usamos, los archivos vienen en @UploadedFiles()
+
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @IsPositive({ each: true })
+  categoryIds?: number[];
 }

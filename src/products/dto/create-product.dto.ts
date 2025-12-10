@@ -1,6 +1,6 @@
 // src/products/dto/create-product.dto.ts
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength, IsArray, ArrayMinSize } from 'class-validator';
 
 export class CreateProductDto {
   @IsString()
@@ -21,4 +21,12 @@ export class CreateProductDto {
   @IsInt()
   @IsPositive()
   storeId!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(0)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @IsPositive({ each: true })
+  categoryIds?: number[];
 }

@@ -61,6 +61,11 @@ export class ProductsController {
         description: { type: 'string', example: 'Paquete 250g' },
         price: { type: 'number', example: 3.5 },
         storeId: { type: 'number', example: 1 },
+        categoryIds: {
+          type: 'array',
+          items: { type: 'number' },
+          example: [1, 2],
+        },
         images: {
           type: 'array',
           items: { type: 'string', format: 'binary' },
@@ -119,6 +124,11 @@ export class ProductsController {
         name: { type: 'string', example: 'Café molido' },
         description: { type: 'string', example: 'Paquete 250g' },
         price: { type: 'number', example: 3.5 },
+        categoryIds: {
+          type: 'array',
+          items: { type: 'number' },
+          example: [1, 2],
+        },
         // array de IDs de imágenes a borrar
         removeImageIds: {
           type: 'array',
@@ -164,6 +174,13 @@ export class ProductsController {
     required: false,
     type: String,
     example: '5.00',
+  })
+  @ApiQuery({
+    name: 'categoryIds',
+    required: false,
+    type: String,
+    description: 'IDs de categorías separados por coma (ej: "1,2,3")',
+    example: '1,2',
   })
   @ApiQuery({
     name: 'sortBy',

@@ -44,6 +44,16 @@ enum MessageType {
   SYSTEM
 }
 
+enum AttributeType {
+  TEXT // Texto libre
+  NUMBER // Número
+  SELECT // Selección de opciones predefinidas
+  MULTISELECT // Selección múltiple de opciones
+  BOOLEAN // Verdadero/Falso
+  DATE // Fecha
+  URL // URL
+}
+
 /**
  * === Modelos ===
  */
@@ -69,9 +79,9 @@ model User {
 
   // participación en conversaciones (tabla puente)
   conversationParticipants ConversationParticipant[]
-   // 🔔 notificaciones recibidas
-  notifications Notification[]
-  avatarUrl  String?
+  // 🔔 notificaciones recibidas
+  notifications            Notification[]
+  avatarUrl                String?
 }
 
 model PlanLimit {
@@ -133,31 +143,67 @@ model ProductImage {
 }
 
 model Product {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   name        String
   description String?
-  price       Decimal   @db.Decimal(10, 2)
+  price       Decimal @db.Decimal(10, 2)
 
-  storeId     Int
-  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  images      ProductImage[]   // 👈 relación 1-N
+  storeId Int
+  store   Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  images  ProductImage[] // 👈 relación 1-N
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  // categorías del producto (relación many-to-many)
+  categories ProductCategory[]
 
-  OrderItem   OrderItem[]
+  // valores de atributos personalizados
+  attributeValues ProductAttributeValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  OrderItem     OrderItem[]
   conversations Conversation[] @relation("ProductConversations")
 
   @@unique([storeId, name])
   @@index([storeId])
 }
 
+model Category {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  slug        String  @unique // URL-friendly identifier
+
+  products ProductCategory[]
+
+  // atributos personalizados de la categoría
+  attributes CategoryAttribute[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+}
+
+model ProductCategory {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  categoryId Int
+  createdAt  DateTime @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, categoryId])
+  @@index([productId])
+  @@index([categoryId])
+}
 
 model Order {
   id        Int         @id @default(autoincrement())
   userId    Int
   storeId   Int
-  total     Float       @default(0)
+  total     Decimal     @default(0) @db.Decimal(10, 2)
   status    OrderStatus @default(PENDING)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -174,11 +220,11 @@ model Order {
 }
 
 model OrderItem {
-  id        Int   @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   orderId   Int
   productId Int
-  quantity  Int   @default(1)
-  price     Float
+  quantity  Int     @default(1)
+  price     Decimal @db.Decimal(10, 2)
 
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])
@@ -272,14 +318,148 @@ model MessageAttachment {
 model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int
-  type      String   // "NEW_MESSAGE" | "ORDER_UPDATE" | etc.
+  type      String // "NEW_MESSAGE" | "ORDER_UPDATE" | etc.
   title     String
   body      String?
-  data      Json?    // información adicional (ej: { "conversationId": 1 })
+  data      Json? // información adicional (ej: { "conversationId": 1 })
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
+}
+
+/**
+ * === Sistema de Atributos de Productos ===
+ * Permite que cada categoría defina atributos personalizados
+ * y que cada producto almacene valores para esos atributos.
+ * Similar a Amazon, AliExpress, etc.
+ */
+
+/**
+ * CategoryAttribute: Define qué atributos tiene una categoría
+ * Ejemplo: Categoría "Laptops" puede tener atributos "RAM", "Storage", "Screen Size"
+ * IMPORTANTE: El slug debe normalizarse a minúsculas y sin espacios sobrantes
+ * para evitar duplicados lógicos. Esto se hace en los servicios.
+ */
+model CategoryAttribute {
+  id         Int      @id @default(autoincrement())
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name        String // Nombre del atributo (ej: "RAM", "Storage", "Color")
+  slug        String // Identificador URL-friendly (ej: "ram", "storage", "color")
+  // NOTA: slug debe normalizarse a minúsculas sin espacios en servicios
+  type        AttributeType @default(TEXT) // Tipo de dato del atributo
+  description String? // Descripción/ayuda para el usuario
+
+  isRequired   Boolean @default(false) // Si es obligatorio al crear producto
+  isFilterable Boolean @default(true) // Si se puede usar para filtrar productos
+  isSearchable Boolean @default(false) // Si se puede buscar por este atributo
+
+  displayOrder Int @default(0) // Orden de visualización en formularios
+
+  // Unidad de medida (ej: "GB", "km", "kg", "inches")
+  unit String?
+
+  // Grupo para agrupar visualmente atributos (ej: "Basic Info", "Technical Details")
+  group String?
+
+  // Rangos de validación (solo para tipo NUMBER)
+  minValue Float? // Valor mínimo permitido
+  maxValue Float? // Valor máximo permitido
+
+  // Valores de atributos asociados a este atributo
+  values ProductAttributeValue[]
+
+  // Opciones predefinidas (para tipo SELECT y MULTISELECT)
+  // IMPORTANTE: SELECT y MULTISELECT deben tener al menos una opción
+  options AttributeOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+  @@index([slug])
+  @@index([isFilterable])
+}
+
+/**
+ * AttributeOption: Opciones predefinidas para atributos tipo SELECT/MULTISELECT
+ * Ejemplo: Para atributo "Color" -> opciones: "Red", "Blue", "Green"
+ * IMPORTANTE: El campo value debe normalizarse a minúsculas y sin espacios sobrantes
+ * para evitar duplicados lógicos. Esto se hace en los servicios.
+ */
+model AttributeOption {
+  id                  Int               @id @default(autoincrement())
+  categoryAttributeId Int
+  categoryAttribute   CategoryAttribute @relation(fields: [categoryAttributeId], references: [id], onDelete: Cascade)
+
+  label        String // Etiqueta visible (ej: "Red", "8GB", "256GB")
+  value        String // Valor almacenado (normalmente igual a label, pero puede ser diferente)
+  // NOTA: value debe normalizarse a minúsculas sin espacios en servicios
+  displayOrder Int    @default(0) // Orden de visualización
+
+  // Valores de productos que usan esta opción
+  productValues ProductAttributeValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryAttributeId, value])
+  @@index([categoryAttributeId])
+}
+
+/**
+ * ProductAttributeValue: Almacena los valores de atributos para cada producto
+ * Ejemplo: Producto "MacBook Pro" -> RAM: "16GB", Storage: "512GB", Color: "Silver"
+ * IMPORTANTE SOBRE MULTISELECT:
+ * - Para atributos de tipo MULTISELECT, un mismo producto puede tener MÚLTIPLES filas
+ * con el mismo categoryAttributeId (una por cada opción seleccionada).
+ * - Para el resto de tipos (TEXT, NUMBER, SELECT, BOOLEAN, DATE, URL), solo puede haber
+ * UNA fila por combinación (productId, categoryAttributeId).
+ * - La restricción @@unique([productId, categoryAttributeId]) se aplica a nivel de base de datos,
+ * pero en servicios se debe manejar MULTISELECT como caso especial permitiendo múltiples valores.
+ */
+model ProductAttributeValue {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  categoryAttributeId Int
+  categoryAttribute   CategoryAttribute @relation(fields: [categoryAttributeId], references: [id], onDelete: Cascade)
+
+  // Valor almacenado como string (flexible para todos los tipos)
+  // Para SELECT/MULTISELECT: almacena el value de AttributeOption
+  // Para NUMBER: almacena el número como string
+  // Para BOOLEAN: "true" o "false"
+  // Para TEXT: texto libre
+  // Para DATE: formato ISO string (ej: "2024-01-15")
+  value String
+
+  // Valor parseado en formato JSON para optimizar filtros numéricos y de fechas
+  // Ejemplos:
+  // - NUMBER: { "number": 16.5 }
+  // - BOOLEAN: { "boolean": true }
+  // - DATE: { "date": "2024-01-15T00:00:00.000Z" }
+  // - SELECT/MULTISELECT: null (se usa value y attributeOptionId)
+  rawJson Json?
+
+  // Referencia opcional a AttributeOption (si el valor proviene de una opción predefinida)
+  attributeOptionId Int?
+  attributeOption   AttributeOption? @relation(fields: [attributeOptionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NOTA: No hay restricción @@unique aquí porque MULTISELECT permite múltiples valores.
+  // La validación de unicidad para tipos no-MULTISELECT se hace en servicios.
+  @@index([productId])
+  @@index([categoryAttributeId])
+  @@index([productId, categoryAttributeId]) // Índice compuesto para búsquedas por producto y atributo
+  @@index([value]) // Para búsquedas y filtros
+  @@index([categoryAttributeId, value]) // Índice compuesto para optimizar búsquedas por atributo y valor
+  @@index([attributeOptionId])
 }

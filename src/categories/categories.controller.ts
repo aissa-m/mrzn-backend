@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -18,10 +19,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { ApiOkResponse, ApiQuery } from '@nestjs/swagger';
+import { AttributesService } from '../attributes/attributes.service';
 
 @Controller('categories')
 export class CategoriesController {
-  constructor(private readonly categoriesService: CategoriesService) {}
+  constructor(
+    private readonly categoriesService: CategoriesService,
+    private readonly attributesService: AttributesService,
+  ) {}
 
   // Crear categoría (solo ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -53,16 +58,24 @@ export class CategoriesController {
     return this.categoriesService.findAll(query);
   }
 
-  // Obtener categoría por ID (público)
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.categoriesService.findOne(Number(id));
-  }
-
   // Obtener categoría por slug (público)
   @Get('slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.categoriesService.findBySlug(slug);
+  }
+
+  // Obtener atributos de una categoría (público)
+  // IMPORTANTE: Esta ruta debe ir antes de @Get(':id') para que se resuelva correctamente
+  @Get(':id/attributes')
+  @ApiOkResponse({ description: 'Lista de atributos de la categoría' })
+  async getCategoryAttributes(@Param('id', ParseIntPipe) id: number) {
+    return this.attributesService.getCategoryAttributes(id);
+  }
+
+  // Obtener categoría por ID (público)
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.categoriesService.findOne(Number(id));
   }
 
   // Actualizar categoría (solo ADMIN)

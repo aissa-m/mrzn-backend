@@ -29,7 +29,6 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   // Crear producto (dueño de la tienda o admin) con imágenes
-  // Crear producto (dueño de la tienda o admin) con imágenes
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('STORE_OWNER', 'ADMIN')
   @Post()

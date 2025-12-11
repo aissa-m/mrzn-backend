@@ -632,8 +632,18 @@ export class AttributesService {
 
   /**
    * Obtiene los atributos de una categoría con sus opciones
+   * Retorna [] si no hay atributos, pero lanza NotFoundException si la categoría no existe
    */
   async getCategoryAttributes(categoryId: number) {
+    // Verificar que la categoría existe
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Categoría no encontrada');
+    }
+
     const attributes = await this.prisma.categoryAttribute.findMany({
       where: { categoryId },
       include: {

@@ -63,7 +63,7 @@ export class ProductsController {
         categoryIds: {
           type: 'array',
           items: { type: 'number' },
-          example: [1, 2],
+          example: 13,
         },
         images: {
           type: 'array',

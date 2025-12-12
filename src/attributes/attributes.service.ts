@@ -487,13 +487,9 @@ export class AttributesService {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
       include: {
-        categories: {
+        category: {
           include: {
-            category: {
-              include: {
-                attributes: true,
-              },
-            },
+            attributes: true,
           },
         },
       },
@@ -503,16 +499,18 @@ export class AttributesService {
       throw new NotFoundException('Producto no encontrado');
     }
 
-    // Obtener todos los atributos de las categorías del producto
+    if (!product.category) {
+      throw new BadRequestException('El producto no tiene una categoría asignada');
+    }
+
+    // Obtener todos los atributos de la categoría del producto
     const categoryAttributes = new Map<number, any>();
     const requiredAttributes = new Set<number>();
-    product.categories.forEach((pc) => {
-      pc.category.attributes.forEach((attr) => {
-        categoryAttributes.set(attr.id, attr);
-        if (attr.isRequired) {
-          requiredAttributes.add(attr.id);
-        }
-      });
+    product.category.attributes.forEach((attr) => {
+      categoryAttributes.set(attr.id, attr);
+      if (attr.isRequired) {
+        requiredAttributes.add(attr.id);
+      }
     });
 
     // Validar que todos los atributos requeridos estén presentes

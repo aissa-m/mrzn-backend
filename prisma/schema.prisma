@@ -149,13 +149,13 @@ model Product {
   price       Decimal @db.Decimal(10, 2)
 
   storeId Int
-  store   Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  images  ProductImage[] // 👈 relación 1-N
+  store   Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  // categorías del producto (relación many-to-many)
-  categories ProductCategory[]
+  /// 👇 CAMBIO IMPORTANTE: UNA SOLA CATEGORÍA
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id])
 
-  // valores de atributos personalizados
+  images          ProductImage[]
   attributeValues ProductAttributeValue[]
 
   createdAt DateTime @default(now())
@@ -166,6 +166,7 @@ model Product {
 
   @@unique([storeId, name])
   @@index([storeId])
+  @@index([categoryId])
 }
 
 model Category {
@@ -174,29 +175,13 @@ model Category {
   description String?
   slug        String  @unique // URL-friendly identifier
 
-  products ProductCategory[]
-
-  // atributos personalizados de la categoría
+  products   Product[] // 👈 lado inverso de Product.category
   attributes CategoryAttribute[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([slug])
-}
-
-model ProductCategory {
-  id         Int      @id @default(autoincrement())
-  productId  Int
-  categoryId Int
-  createdAt  DateTime @default(now())
-
-  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, categoryId])
-  @@index([productId])
-  @@index([categoryId])
 }
 
 model Order {

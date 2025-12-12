@@ -22,11 +22,8 @@ export class CreateProductDto {
   @IsPositive()
   storeId!: number;
 
-  @IsOptional()
-  @IsArray()
-  @ArrayMinSize(0)
   @Type(() => Number)
-  @IsInt({ each: true })
-  @IsPositive({ each: true })
-  categoryIds?: number[];
+  @IsInt()
+  @IsPositive()
+  categoryId: number;
 }

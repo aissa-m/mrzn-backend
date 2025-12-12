@@ -29,7 +29,6 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   // Crear producto (dueño de la tienda o admin) con imágenes
-  // Crear producto (dueño de la tienda o admin) con imágenes
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('STORE_OWNER', 'ADMIN')
   @Post()
@@ -64,7 +63,7 @@ export class ProductsController {
         categoryIds: {
           type: 'array',
           items: { type: 'number' },
-          example: [1, 2],
+          example: 13,
         },
         images: {
           type: 'array',

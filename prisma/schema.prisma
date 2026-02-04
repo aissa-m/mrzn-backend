@@ -24,6 +24,13 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
+enum StoreStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
 enum Role {
   USER
   STORE_OWNER
@@ -113,10 +120,38 @@ model Subscription {
 }
 
 model Store {
-  id       Int       @id @default(autoincrement())
-  name     String
-  ownerId  Int
-  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id      Int    @id @default(autoincrement())
+  name    String
+  ownerId Int
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  /// Descripción larga de la tienda
+  description   String?
+  /// Imagen principal (logo)
+  logoImageUrl  String?
+  /// Imagen de portada/cabecera
+  coverImageUrl String?
+
+  /// Datos de contacto
+  contactEmail   String?
+  contactPhone   String?
+  whatsappNumber String?
+
+  /// Ubicación (adaptada a Mauritania)
+  address  String?
+  city     String?
+  region   String? // Wilaya o región
+
+  /// Redes sociales y web
+  facebookUrl  String?
+  instagramUrl String?
+  twitterUrl   String?
+  tiktokUrl    String?
+  websiteUrl   String?
+
+  /// Estado de la tienda (visible, suspendida, etc.)
+  status StoreStatus @default(ACTIVE)
+
   products Product[]
 
   createdAt DateTime @default(now())

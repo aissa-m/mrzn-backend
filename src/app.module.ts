@@ -15,6 +15,7 @@ import { join } from 'path';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CategoriesModule } from './categories/categories.module';
 import { AttributesModule } from './attributes/attributes.module';
+import { PushTokensModule } from './push-tokens/push-tokens.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AttributesModule } from './attributes/attributes.module';
       serveRoot: '/uploads',
     }),
     NotificationsModule,
+    PushTokensModule,
     CategoriesModule,
     AttributesModule,
   ],

@@ -621,14 +621,16 @@ model PaymentIntent {
 }
 
 model WebhookEvent {
-  id            Int      @id @default(autoincrement())
-  eventType     String   @db.VarChar(64)
-  transactionId String?  @db.VarChar(191)
-  signature     String?  @db.VarChar(255)
-  rawBodyHash   String   @db.VarChar(64) // SHA256 hex del raw body, clave idempotencia
-  receivedAt    DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  provider        String   @db.VarChar(32) // e.g. "MOOSYL"
+  idempotencyKey  String   @db.VarChar(255) // stable event id or derived key (provider+transactionId+eventType+status+amount)
+  eventType       String   @db.VarChar(64)
+  transactionId   String?  @db.VarChar(191)
+  signature       String?  @db.VarChar(255)
+  rawBodyHash     String?  @db.VarChar(64) // SHA256 hex of raw body (audit only)
+  receivedAt      DateTime @default(now())
 
-  @@unique([rawBodyHash])
+  @@unique([provider, idempotencyKey])
   @@index([transactionId])
   @@index([receivedAt])
 }

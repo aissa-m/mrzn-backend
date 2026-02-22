@@ -21,17 +21,19 @@ async function bootstrap() {
     bodyParser: false,
   });
 
-  // Body parser con verify para preservar raw body en webhooks Moosyl (firma HMAC)
+  // Body parser: preserve raw body only for Moosyl webhook (HMAC verification)
+  const rawBodyLimit = '1mb';
   app.use(
     express.json({
-      verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
+      limit: rawBodyLimit,
+      verify: (req: express.Request & { rawBody?: Buffer }, _res, buf: Buffer) => {
         if (req.originalUrl?.includes('/webhooks/moosyl')) {
           req.rawBody = buf;
         }
       },
     }),
   );
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.urlencoded({ extended: true, limit: rawBodyLimit }));
   const logger = new Logger('Bootstrap');
   const config = app.get(ConfigService);
 
@@ -59,6 +61,8 @@ async function bootstrap() {
       'Content-Type',
       'Authorization',
       'x-admin-bootstrap-secret',
+      'x-webhook-signature',
+      'x-webhook-event',
     ],
   });
 
@@ -105,14 +109,13 @@ async function bootstrap() {
 
   // Apagado elegante
   app.enableShutdownHooks();
-  app.setGlobalPrefix('api');
-  // Escuchar
+
   const port = Number(config.get<string>('PORT')) || 3000;
   await app.listen(port, '0.0.0.0');
 
   const url = await app.getUrl();
   logger.log(`🚀 Servidor corriendo en ${url}`);
-  if (!isProd) logger.log(`📘 Swagger disponible en ${url}/docs`);
+  if (!isProd) logger.log(`📘 Swagger disponible en ${url}/api/docs`);
 }
 
 void bootstrap();

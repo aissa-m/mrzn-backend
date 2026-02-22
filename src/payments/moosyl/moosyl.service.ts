@@ -27,11 +27,11 @@ export class MoosylService {
    * Obtiene o crea la cartera del usuario.
    */
   async getOrCreateWallet(userId: number) {
-    let wallet = await (this.prisma as any).wallet.findUnique({
+    let wallet = await this.prisma.wallet.findUnique({
       where: { userId },
     });
     if (!wallet) {
-      wallet = await (this.prisma as any).wallet.create({
+      wallet = await this.prisma.wallet.create({
         data: { userId, currency: 'MRU' },
       });
     }
@@ -45,7 +45,7 @@ export class MoosylService {
     const wallet = await this.getOrCreateWallet(userId);
     const transactionId = `topup_${userId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    const paymentIntent = await (this.prisma as any).paymentIntent.create({
+    const paymentIntent = await this.prisma.paymentIntent.create({
       data: {
         userId,
         walletId: wallet.id,
@@ -61,7 +61,7 @@ export class MoosylService {
       await this.moosylApi.createPaymentRequest(amount, transactionId);
     } catch (err) {
       this.logger.warn(`Moosyl createPaymentRequest failed: ${err}`);
-      await (this.prisma as any).paymentIntent.update({
+      await this.prisma.paymentIntent.update({
         where: { id: paymentIntent.id },
         data: { status: 'FAILED' },
       });
@@ -70,7 +70,7 @@ export class MoosylService {
       );
     }
 
-    await (this.prisma as any).paymentIntent.update({
+    await this.prisma.paymentIntent.update({
       where: { id: paymentIntent.id },
       data: { status: 'PENDING' },
     });
@@ -84,47 +84,54 @@ export class MoosylService {
 
   /**
    * Verifica la firma HMAC-SHA256 del webhook Moosyl.
+   * Signature must be "sha256=<hex>". HMAC is computed over the exact raw request bytes (Buffer).
    * Doc: https://docs.moosyl.com/webhooks
    */
-  verifyWebhookSignature(
-    rawBody: Buffer | string,
-    signature: string | undefined,
-  ): boolean {
-    if (!signature || !signature.startsWith('sha256=')) {
+  verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
+    if (!signature || typeof signature !== 'string' || !signature.startsWith('sha256=')) {
       return false;
     }
-    const receivedHex = signature.slice(7);
-    const payload =
-      typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const receivedHex = signature.slice(7).trim();
+    if (!/^[a-fA-F0-9]+$/.test(receivedHex) || receivedHex.length % 2 !== 0) {
+      return false;
+    }
     const expectedSignature = crypto
       .createHmac('sha256', this.getWebhookSecret())
-      .update(payload, 'utf8')
+      .update(rawBody)
       .digest('hex');
 
     try {
-      return crypto.timingSafeEqual(
-        Buffer.from(receivedHex, 'hex'),
-        Buffer.from(expectedSignature, 'hex'),
-      );
+      const receivedBuf = Buffer.from(receivedHex, 'hex');
+      const expectedBuf = Buffer.from(expectedSignature, 'hex');
+      if (receivedBuf.length !== expectedBuf.length) return false;
+      return crypto.timingSafeEqual(receivedBuf, expectedBuf);
     } catch {
       return false;
     }
   }
 
   /**
-   * Procesa el webhook de Moosyl. Idempotente mediante WebhookEvent.
+   * Procesa el webhook de Moosyl. Idempotente por provider + idempotencyKey (event id o derivado).
    */
   async handleWebhook(
     rawBody: Buffer,
     signature: string | undefined,
     eventType: string | undefined,
   ): Promise<void> {
+    if (!signature || !signature.startsWith('sha256=')) {
+      throw new BadRequestException('Missing or invalid webhook signature (expected sha256=<hex>)');
+    }
     if (!this.verifyWebhookSignature(rawBody, signature)) {
       throw new BadRequestException('Invalid webhook signature');
     }
 
     const rawBodyHash = crypto.createHash('sha256').update(rawBody).digest('hex');
-    let payload: { event?: string; data?: { id?: string; amount?: number; transactionId?: string; status?: string } };
+    let payload: {
+      event?: string;
+      data?: { id?: string; amount?: number; transactionId?: string; status?: string };
+      event_id?: string;
+      transactionId?: string;
+    };
     try {
       payload = JSON.parse(rawBody.toString('utf8')) as typeof payload;
     } catch {
@@ -134,18 +141,32 @@ export class MoosylService {
     const event = eventType ?? payload.event;
     const data = payload.data ?? {};
     const transactionId =
-      data.transactionId ?? data.id ?? (payload as unknown as { transactionId?: string }).transactionId;
+      data.transactionId ?? data.id ?? payload.transactionId;
+    const status = (data.status ?? '').toLowerCase();
+    const amount = data.amount;
 
-    const existing = await (this.prisma as any).webhookEvent.findUnique({
-      where: { rawBodyHash },
+    const providerEventId =
+      data.id ?? payload.event_id ?? (payload as { id?: string }).id;
+    const idempotencyKey =
+      providerEventId ??
+      `MOOSYL|${transactionId ?? 'unknown'}|${event ?? 'unknown'}|${status}|${amount ?? ''}`;
+
+    const existing = await this.prisma.webhookEvent.findUnique({
+      where: {
+        provider_idempotencyKey: { provider: 'MOOSYL', idempotencyKey },
+      },
     });
     if (existing) {
-      this.logger.log(`Webhook idempotent skip: rawBodyHash=${rawBodyHash.slice(0, 16)}...`);
+      this.logger.log(
+        `Webhook idempotent skip: provider=MOOSYL idempotencyKey=${idempotencyKey.slice(0, 48)}...`,
+      );
       return;
     }
 
-    await (this.prisma as any).webhookEvent.create({
+    await this.prisma.webhookEvent.create({
       data: {
+        provider: 'MOOSYL',
+        idempotencyKey,
         eventType: event ?? 'unknown',
         transactionId: transactionId ?? null,
         signature: signature ?? null,
@@ -153,28 +174,34 @@ export class MoosylService {
       },
     });
 
-    if (event === 'payment-created' && data.status === 'completed') {
-      await this.creditWalletFromPayment(transactionId, data.amount);
+    const isSuccessStatus = ['completed', 'success', 'paid'].includes(status);
+    const isPaymentEvent =
+      event === 'payment-created' ||
+      event === 'payment.completed' ||
+      event === 'payment_completed';
+
+    if (isPaymentEvent && isSuccessStatus) {
+      await this.creditWalletFromPayment(transactionId, amount);
     } else {
       this.logger.log(
-        `Webhook event ignored: ${event}, status=${data.status ?? 'N/A'}`,
+        `Webhook event ignored: event=${event}, status=${data.status ?? 'N/A'}`,
       );
     }
   }
 
   /**
-   * Acredita la cartera y actualiza el PaymentIntent.
+   * Acredita la cartera y actualiza el PaymentIntent. Atomic: only one credit per intent.
    */
   private async creditWalletFromPayment(
     transactionId: string | undefined,
     amount: number | undefined,
   ): Promise<void> {
     if (!transactionId) {
-      this.logger.warn('payment-created without transactionId, skipping credit');
+      this.logger.warn('payment event without transactionId, skipping credit');
       return;
     }
 
-    const intent = await (this.prisma as any).paymentIntent.findUnique({
+    const intent = await this.prisma.paymentIntent.findUnique({
       where: { transactionId },
       include: { wallet: true },
     });
@@ -184,22 +211,24 @@ export class MoosylService {
       return;
     }
 
-    if (intent.status === 'PAID') {
-      this.logger.log(`PaymentIntent ${transactionId} already PAID, skipping`);
-      return;
-    }
-
     const creditAmount = amount ?? Number(intent.amount);
     if (creditAmount <= 0) {
       this.logger.warn(`Invalid amount ${creditAmount} for ${transactionId}`);
       return;
     }
 
-    await this.prisma.$transaction(async (tx: any) => {
-      await tx.paymentIntent.update({
-        where: { id: intent.id },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.paymentIntent.updateMany({
+        where: {
+          id: intent.id,
+          status: { not: 'PAID' },
+        },
         data: { status: 'PAID' },
       });
+      if (updateResult.count === 0) {
+        this.logger.log(`PaymentIntent ${transactionId} already PAID, skipping credit`);
+        return null;
+      }
       await tx.walletLedger.create({
         data: {
           walletId: intent.walletId,
@@ -208,10 +237,13 @@ export class MoosylService {
           reference: `Moosyl ${transactionId}`,
         },
       });
+      return { userId: intent.userId, creditAmount, transactionId };
     });
 
-    this.logger.log(
-      `Wallet credited: userId=${intent.userId}, amount=${creditAmount}, txn=${transactionId}`,
-    );
+    if (updated) {
+      this.logger.log(
+        `Wallet credited: userId=${updated.userId}, amount=${updated.creditAmount}, txn=${updated.transactionId}`,
+      );
+    }
   }
 }

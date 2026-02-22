@@ -23,9 +23,8 @@ interface AuthenticatedSocket extends Socket {
 @WebSocketGateway({
   namespace: '/chat',
   cors: {
-    origin: process.env.CHAT_WS_ORIGINS?.split(',')
-      .map((o) => o.trim())
-      .filter(Boolean) ?? ['http://192.168.1.129:3000'],
+    origin: true, // acepta cualquier origin en dev
+    credentials: true,
   },
 })
 @UseGuards(WsJwtGuard)

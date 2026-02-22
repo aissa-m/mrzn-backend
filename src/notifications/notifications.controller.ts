@@ -1,3 +1,4 @@
+// src/notifications/notifications.controller.ts
 import { Controller, Get, Param, ParseIntPipe, Patch, UseGuards } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';

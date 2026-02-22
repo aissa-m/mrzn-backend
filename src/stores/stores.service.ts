@@ -17,21 +17,82 @@ export class StoresService {
 
   async create(ownerId: number, dto: CreateStoreDto) {
     return this.prisma.store.create({
-      data: { name: dto.name, ownerId },
+      data: {
+        ownerId,
+        name: dto.name,
+        description: dto.description,
+        logoImageUrl: dto.logoImageUrl,
+        coverImageUrl: dto.coverImageUrl,
+        contactEmail: dto.contactEmail,
+        contactPhone: dto.contactPhone,
+        whatsappNumber: dto.whatsappNumber,
+        address: dto.address,
+        city: dto.city,
+        region: dto.region,
+        facebookUrl: dto.facebookUrl,
+        instagramUrl: dto.instagramUrl,
+        twitterUrl: dto.twitterUrl,
+        tiktokUrl: dto.tiktokUrl,
+        websiteUrl: dto.websiteUrl,
+        status: dto.status,
+      },
     });
+  }
+
+  async findAll() {
+    const stores = await this.prisma.store.findMany({
+      where: { status: { not: 'CLOSED' } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            products: true,
+          },
+        },
+      },
+    });
+
+    return stores.map((store) => ({
+      ...store,
+      productsCount: store._count.products,
+    }));
   }
 
   async findAllByOwner(ownerId: number) {
-    return this.prisma.store.findMany({
+    const stores = await this.prisma.store.findMany({
       where: { ownerId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            products: true,
+          },
+        },
+      },
     });
+
+    return stores.map((store) => ({
+      ...store,
+      productsCount: store._count.products,
+    }));
   }
 
   async findOne(id: number) {
-    const store = await this.prisma.store.findUnique({ where: { id } });
+    const store = await this.prisma.store.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            products: true,
+          },
+        },
+      },
+    });
     if (!store) throw new NotFoundException('Store not found');
-    return store;
+    return {
+      ...store,
+      productsCount: store._count.products,
+    };
   }
 
   // stores.service.ts
@@ -57,11 +118,18 @@ export class StoresService {
       throw new ForbiddenException('Not allowed to delete this store');
 
     await this.findOne(id);
-    // ⚠️ Mejor en transacción:
-    await this.prisma.$transaction([
-      this.prisma.product.deleteMany({ where: { storeId: id } }),
-      this.prisma.store.delete({ where: { id } }),
-    ]);
+
+    const productsCount = await this.prisma.product.count({
+      where: { storeId: id },
+    });
+
+    if (productsCount > 0) {
+      throw new ForbiddenException(
+        'Cannot delete a store that has associated products',
+      );
+    }
+
+    await this.prisma.store.delete({ where: { id } });
     return { ok: true };
   }
 }

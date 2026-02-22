@@ -20,6 +20,12 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
+  // Listado público de tiendas (incluye número de productos)
+  @Get()
+  findAll() {
+    return this.storesService.findAll();
+  }
+
   // Crear tienda (STORE_OWNER o ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('STORE_OWNER', 'ADMIN')
@@ -50,7 +56,7 @@ export class StoresController {
     @Param('id') id: string,
     @Body() dto: UpdateStoreDto,
   ) {
-    return this.storesService.update(user.id, Number(id), dto);
+    return this.storesService.update(user, Number(id), dto);
   }
 
   // Borrar
@@ -58,6 +64,6 @@ export class StoresController {
   @Roles('STORE_OWNER', 'ADMIN')
   @Delete(':id')
   remove(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.storesService.remove(user.id, Number(id));
+    return this.storesService.remove(user, Number(id));
   }
 }

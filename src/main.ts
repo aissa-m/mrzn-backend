@@ -12,11 +12,28 @@ import { Logger } from '@nestjs/common';
 import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import express from 'express';
 import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
-  // Logger temprano
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    bodyParser: false,
+  });
+
+  // Body parser: preserve raw body only for Moosyl webhook (HMAC verification)
+  const rawBodyLimit = '1mb';
+  app.use(
+    express.json({
+      limit: rawBodyLimit,
+      verify: (req: express.Request & { rawBody?: Buffer }, _res, buf: Buffer) => {
+        if (req.originalUrl?.includes('/webhooks/moosyl')) {
+          req.rawBody = buf;
+        }
+      },
+    }),
+  );
+  app.use(express.urlencoded({ extended: true, limit: rawBodyLimit }));
   const logger = new Logger('Bootstrap');
   const config = app.get(ConfigService);
 
@@ -40,7 +57,13 @@ async function bootstrap() {
     origin: isProd ? config.get<string>('CORS_ORIGIN')?.split(',') : true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-admin-bootstrap-secret',
+      'x-webhook-signature',
+      'x-webhook-event',
+    ],
   });
 
   // Validaciones globales
@@ -86,14 +109,13 @@ async function bootstrap() {
 
   // Apagado elegante
   app.enableShutdownHooks();
-  app.setGlobalPrefix('api');
-  // Escuchar
+
   const port = Number(config.get<string>('PORT')) || 3000;
   await app.listen(port, '0.0.0.0');
 
   const url = await app.getUrl();
   logger.log(`🚀 Servidor corriendo en ${url}`);
-  if (!isProd) logger.log(`📘 Swagger disponible en ${url}/docs`);
+  if (!isProd) logger.log(`📘 Swagger disponible en ${url}/api/docs`);
 }
 
 void bootstrap();

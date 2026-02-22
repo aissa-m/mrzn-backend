@@ -6,7 +6,8 @@ import { Socket } from 'socket.io';
 
 interface AuthenticatedSocket extends Socket {
   userId: number;
-  userEmail: string;
+  userEmail?: string;
+  userPhone?: string;
   userRole: string;
 }
 
@@ -24,10 +25,10 @@ export class WsJwtGuard implements CanActivate {
       }
 
       const payload = await this.jwtService.verifyAsync(token);
-      
-      // Adjuntar al socket para uso posterior
-      client.userId = payload.id;
+      // JWT payload: sub (user id), email?, phone?, role
+      client.userId = payload.sub;
       client.userEmail = payload.email;
+      client.userPhone = payload.phone;
       client.userRole = payload.role;
 
       return true;

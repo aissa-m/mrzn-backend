@@ -22,7 +22,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
     private s3Service: S3Service,
-  ) {}
+  ) { }
 
   async create(
     userId: number,
@@ -30,30 +30,32 @@ export class ProductsService {
     files: Express.Multer.File[],
   ) {
     try {
-      // (Opcional) validar que la tienda pertenece al usuario o que es admin.
-      // Aquí asumo que el guard de rol + lógica previa ya controla eso.
+      // Validar que la categoría existe
+      const categoryExists = await this.prisma.category.findUnique({
+        where: { id: dto.categoryId },
+      });
 
-      // 1) Crear el producto primero (sin imágenes)
+      if (!categoryExists) {
+        throw new BadRequestException('La categoría seleccionada no existe');
+      }
+
+      // 1) Crear el producto primero (sin imágenes aún)
       const product = await this.prisma.product.create({
         data: {
           name: dto.name.trim(),
           description: dto.description?.trim() || null,
-          price: new Prisma.Decimal(String(dto.price)), // acepta "3.50" o 3.5
+          price: new (Prisma as any).Decimal(String(dto.price)),
           storeId: Number(dto.storeId),
+          categoryId: dto.categoryId,
         },
       });
 
-      // 2) Subir imágenes (si hay) a carpeta products/{product.id}
+      // 2) Subir imágenes (si hay)
       const results = await Promise.allSettled<UploadResult>(
         (files ?? []).map((f) =>
           this.s3Service.uploadFile(f, `products/${product.id}`),
         ),
       );
-
-      // console.log(
-      //   'PRODUCT CREATE - uploaded results:',
-      //   results.map((r) => (r.status === 'fulfilled' ? r.value : r)),
-      // );
 
       const uploaded: UploadResult[] = results
         .filter(
@@ -62,10 +64,10 @@ export class ProductsService {
         )
         .map((r) => r.value);
 
-      // Si hubo ficheros y nada subió, avisar (400) en vez de 500
+      // Si había ficheros pero no se subió ninguno → error 400
       if ((files?.length ?? 0) > 0 && uploaded.length === 0) {
         console.error('S3 upload errors:', results);
-        throw new BadRequestException('No se pudieron subir las imágenes a S3');
+        throw new BadRequestException('No se pudieron subir las imágenes');
       }
 
       // 3) Guardar las imágenes en BD
@@ -78,7 +80,7 @@ export class ProductsService {
         });
       }
 
-      // 4) Devolver el producto con imágenes y tienda
+      // 4) Devolver producto con categoría, imágenes y tienda
       return this.prisma.product.findUnique({
         where: { id: product.id },
         include: {
@@ -89,11 +91,18 @@ export class ProductsService {
               ownerId: true,
             },
           },
+          category: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
         },
       });
     } catch (e) {
       if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e instanceof (Prisma as any).PrismaClientKnownRequestError &&
         e.code === 'P2002'
       ) {
         throw new ConflictException(
@@ -109,6 +118,13 @@ export class ProductsService {
       where: { storeId },
       include: {
         images: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -133,6 +149,13 @@ export class ProductsService {
           select: {
             id: true,
             ownerId: true,
+          },
+        },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
           },
         },
       },
@@ -171,8 +194,23 @@ export class ProductsService {
     const owns = await this.ownership.isStoreOwner(userId, product.storeId);
     if (!owns) throw new ForbiddenException('Not the store owner');
 
-    // 2) Preparar datos básicos a actualizar
-    const data: Prisma.ProductUpdateInput = {};
+    // 2) Validar categoría si se proporciona
+    // Manejar categoryIds (array) tomando el primer elemento, o categoryId (singular) si existe
+    const categoryIdToUse = (dto as any).categoryId !== undefined 
+      ? (dto as any).categoryId 
+      : (dto.categoryIds && dto.categoryIds.length > 0 ? dto.categoryIds[0] : undefined);
+
+    if (categoryIdToUse !== undefined && categoryIdToUse !== null) {
+      const categoryExists = await this.prisma.category.findUnique({
+        where: { id: categoryIdToUse },
+      });
+      if (!categoryExists) {
+        throw new BadRequestException('La categoría seleccionada no existe');
+      }
+    }
+
+    // 3) Preparar datos básicos a actualizar
+    const data: any = {};
 
     if (dto.name !== undefined) {
       data.name = dto.name;
@@ -183,10 +221,15 @@ export class ProductsService {
     }
 
     if (dto.price !== undefined) {
-      data.price = new Prisma.Decimal(String(dto.price));
+      data.price = new (Prisma as any).Decimal(String(dto.price));
     }
 
-    // 3) Aplicar update de datos básicos
+    // Actualizar categoría si se proporciona
+    if (categoryIdToUse !== undefined) {
+      data.categoryId = categoryIdToUse || null;
+    }
+
+    // 4) Aplicar update de datos básicos
     await this.prisma.product.update({
       where: { id },
       data,
@@ -237,7 +280,7 @@ export class ProductsService {
       }
     }
 
-    // 6) Devolver producto actualizado con imágenes
+    // 6) Devolver producto actualizado con imágenes y categoría
     const updated = await this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -246,6 +289,13 @@ export class ProductsService {
           select: {
             id: true,
             ownerId: true,
+          },
+        },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
           },
         },
       },
@@ -284,21 +334,27 @@ export class ProductsService {
       limit = 20,
     } = q;
 
-    const where: Prisma.ProductWhereInput = {
+    const where: any = {
       ...(storeId ? { storeId: Number(storeId) } : {}),
 
       ...(search
         ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { description: { contains: search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
 
-      ...(minPrice ? { price: { gte: new Prisma.Decimal(minPrice) } } : {}),
+      ...(minPrice ? { price: { gte: new (Prisma as any).Decimal(minPrice) } } : {}),
 
-      ...(maxPrice ? { price: { lte: new Prisma.Decimal(maxPrice) } } : {}),
+      ...(maxPrice ? { price: { lte: new (Prisma as any).Decimal(maxPrice) } } : {}),
+
+      ...(q.categoryIds && q.categoryIds.length > 0
+        ? {
+          categoryId: { in: q.categoryIds },
+        }
+        : {}),
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -313,6 +369,13 @@ export class ProductsService {
             select: {
               id: true,
               ownerId: true, // 👈 aquí está el vendedor
+            },
+          },
+          category: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
             },
           },
         },
@@ -333,6 +396,8 @@ export class ProductsService {
       images: p.images.map((img) => img.url),
 
       mainImage: p.images[0]?.url ?? null,
+
+      category: p.category,
     }));
 
     return {

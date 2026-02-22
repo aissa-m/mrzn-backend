@@ -1,6 +1,7 @@
 // src/products/dto/query-products.dto.ts
 import { Transform } from 'class-transformer';
 import {
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -32,6 +33,21 @@ export class QueryProductsDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'maxPrice debe tener hasta 2 decimales' })
   @IsPositive()
   maxPrice?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) {
+      return value.map((v) => parseInt(v, 10));
+    }
+    if (typeof value === 'string') {
+      return value.split(',').map((v) => parseInt(v.trim(), 10));
+    }
+    return [parseInt(value, 10)];
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  @IsPositive({ each: true })
+  categoryIds?: number[];
 
   @IsOptional()
   @IsIn(['createdAt', 'price', 'name'])

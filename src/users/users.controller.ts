@@ -1,6 +1,9 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -13,6 +16,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { UpdateMeDto } from './dto/update-me.dto';
 
 @Controller('users')
 export class UsersController {
@@ -22,6 +26,21 @@ export class UsersController {
   @Get('me')
   me(@CurrentUser() user: { id: number }) {
     return this.usersService.getMe(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  updateMe(
+    @CurrentUser() user: { id: number },
+    @Body() dto: UpdateMeDto,
+  ) {
+    return this.usersService.updateMe(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/personal-info')
+  clearPersonalInfo(@CurrentUser() user: { id: number }) {
+    return this.usersService.clearPersonalInfo(user.id);
   }
 
   @UseGuards(JwtAuthGuard)

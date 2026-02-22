@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OwnershipService } from '../common/services/ownership.service';
-import { OrderStatus, Role } from '@prisma/client';
+import { OrderStatus, Role, Prisma } from '@prisma/client';
 import { JwtUserPayload } from 'src/auth/roles.guard';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -46,16 +46,22 @@ export class OrdersService {
 
     const itemsData = dto.items.map((item) => {
       const p = products.find((x) => x.id === item.productId)!;
+      // Convertir Decimal a Decimal para mantener precisión
+      // p.price ya es Decimal desde Prisma, pero lo convertimos explícitamente
+      const productPrice = p.price instanceof Prisma.Decimal 
+        ? p.price 
+        : new Prisma.Decimal(String(p.price));
       return {
         productId: item.productId,
         quantity: item.quantity,
-        price: Number(p.price), // Product.price es Decimal(10,2)
+        price: productPrice, // OrderItem.price es Decimal(10,2)
       };
     });
 
+    // Calcular total usando Decimal para mantener precisión
     const total = itemsData.reduce(
-      (acc, it) => acc + it.price * it.quantity,
-      0,
+      (acc, it) => acc.plus(it.price.times(it.quantity)),
+      new Prisma.Decimal(0),
     );
 
     // Transacción: crea Order + OrderItems

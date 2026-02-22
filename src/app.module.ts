@@ -16,6 +16,10 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { CategoriesModule } from './categories/categories.module';
 import { AttributesModule } from './attributes/attributes.module';
 import { PushTokensModule } from './push-tokens/push-tokens.module';
+import { MoosylModule } from './payments/moosyl/moosyl.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { CartModule } from './cart/cart.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -28,6 +32,8 @@ import { PushTokensModule } from './push-tokens/push-tokens.module';
     ProductsModule,
     OrdersModule,
     ChatModule,
+    FavoritesModule,
+    CartModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'uploads'),
       serveRoot: '/uploads',
@@ -36,6 +42,8 @@ import { PushTokensModule } from './push-tokens/push-tokens.module';
     PushTokensModule,
     CategoriesModule,
     AttributesModule,
+    AdminModule,
+    MoosylModule,
   ],
   controllers: [AppController],
   providers: [AppService],

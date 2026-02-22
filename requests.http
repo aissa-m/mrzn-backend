@@ -1,0 +1,92 @@
+### Maurizone API - Favorites & Cart (requires JWT)
+### Set BASE and TOKEN after login (e.g. POST /api/auth/login or /api/auth/otp/verify)
+@base = http://localhost:3000/api
+@token = YOUR_JWT_TOKEN_HERE
+
+### ---------- Favorites ----------
+### List favorites (paginated)
+GET {{base}}/favorites?page=1&limit=20
+Authorization: Bearer {{token}}
+
+### List favorite product IDs only
+GET {{base}}/favorites/ids
+Authorization: Bearer {{token}}
+
+### Toggle favorite (add) - replace :productId with real product id
+POST {{base}}/favorites/toggle/1
+Authorization: Bearer {{token}}
+
+### Toggle favorite (remove) - 404 if product does not exist
+POST {{base}}/favorites/toggle/99999
+Authorization: Bearer {{token}}
+
+### ---------- Cart ----------
+### Get cart (creates if not exists)
+GET {{base}}/cart
+Authorization: Bearer {{token}}
+
+### Add to cart
+POST {{base}}/cart/add
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 2
+}
+
+### Add to cart - invalid productId (404 Product not found)
+POST {{base}}/cart/add
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": 99999,
+  "quantity": 1
+}
+
+### Update cart item quantity
+PATCH {{base}}/cart/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 3
+}
+
+### Update quantity to 0 (removes item)
+PATCH {{base}}/cart/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 0
+}
+
+### Invalid quantity (400)
+PATCH {{base}}/cart/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 100
+}
+
+### Remove item by productId
+DELETE {{base}}/cart/remove/1
+Authorization: Bearer {{token}}
+
+### Remove non-existent item (404 Cart item not found)
+DELETE {{base}}/cart/remove/99999
+Authorization: Bearer {{token}}
+
+### Clear cart
+DELETE {{base}}/cart/clear
+Authorization: Bearer {{token}}
+
+### ---------- Unauthorized (401) - no token ----------
+GET {{base}}/favorites
+GET {{base}}/cart

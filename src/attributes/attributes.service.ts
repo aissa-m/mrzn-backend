@@ -473,6 +473,120 @@ export class AttributesService {
   }
 
   /**
+   * Elimina un atributo de categoría (y sus opciones por cascade)
+   */
+  async deleteCategoryAttribute(attributeId: number) {
+    const attribute = await this.prisma.categoryAttribute.findUnique({
+      where: { id: attributeId },
+      include: {
+        options: true,
+      },
+    });
+
+    if (!attribute) {
+      throw new NotFoundException('Atributo no encontrado');
+    }
+
+    await this.prisma.categoryAttribute.delete({
+      where: { id: attributeId },
+    });
+
+    return { deleted: true, id: attributeId };
+  }
+
+  /**
+   * Lista las opciones de un atributo
+   */
+  async getAttributeOptions(attributeId: number) {
+    const attribute = await this.prisma.categoryAttribute.findUnique({
+      where: { id: attributeId },
+    });
+
+    if (!attribute) {
+      throw new NotFoundException('Atributo no encontrado');
+    }
+
+    return this.prisma.attributeOption.findMany({
+      where: { categoryAttributeId: attributeId },
+      orderBy: { displayOrder: 'asc' },
+    });
+  }
+
+  /**
+   * Actualiza una opción de un atributo (verifica que la opción pertenezca al atributo)
+   */
+  async updateAttributeOption(
+    attributeId: number,
+    optionId: number,
+    data: { label?: string; value?: string; displayOrder?: number },
+  ) {
+    const option = await this.prisma.attributeOption.findUnique({
+      where: { id: optionId },
+    });
+
+    if (!option) {
+      throw new NotFoundException('Opción no encontrada');
+    }
+
+    if (option.categoryAttributeId !== attributeId) {
+      throw new NotFoundException(
+        'La opción no pertenece al atributo indicado',
+      );
+    }
+
+    const updateData: { label?: string; value?: string; displayOrder?: number } = {};
+    if (data.label !== undefined) updateData.label = data.label;
+    if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+
+    if (data.value !== undefined) {
+      const normalizedValue = this.normalizeSlugOrValue(data.value);
+      const existing = await this.prisma.attributeOption.findFirst({
+        where: {
+          categoryAttributeId: attributeId,
+          value: normalizedValue,
+          id: { not: optionId },
+        },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Ya existe una opción con el valor "${normalizedValue}" en este atributo`,
+        );
+      }
+      updateData.value = normalizedValue;
+    }
+
+    return this.prisma.attributeOption.update({
+      where: { id: optionId },
+      data: updateData,
+    });
+  }
+
+  /**
+   * Elimina una opción de un atributo (verifica que la opción pertenezca al atributo)
+   */
+  async deleteAttributeOption(attributeId: number, optionId: number) {
+    const option = await this.prisma.attributeOption.findUnique({
+      where: { id: optionId },
+    });
+
+    if (!option) {
+      throw new NotFoundException('Opción no encontrada');
+    }
+
+    if (option.categoryAttributeId !== attributeId) {
+      throw new NotFoundException(
+        'La opción no pertenece al atributo indicado',
+      );
+    }
+
+    await this.prisma.attributeOption.delete({
+      where: { id: optionId },
+    });
+
+    return { deleted: true, id: optionId };
+  }
+
+  /**
    * Establece valores de atributos para un producto
    * IMPORTANTE: Para MULTISELECT, permite múltiples valores para el mismo atributo
    */

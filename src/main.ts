@@ -12,11 +12,26 @@ import { Logger } from '@nestjs/common';
 import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import express from 'express';
 import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
-  // Logger temprano
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    bodyParser: false,
+  });
+
+  // Body parser con verify para preservar raw body en webhooks Moosyl (firma HMAC)
+  app.use(
+    express.json({
+      verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
+        if (req.originalUrl?.includes('/webhooks/moosyl')) {
+          req.rawBody = buf;
+        }
+      },
+    }),
+  );
+  app.use(express.urlencoded({ extended: true }));
   const logger = new Logger('Bootstrap');
   const config = app.get(ConfigService);
 
@@ -40,7 +55,11 @@ async function bootstrap() {
     origin: isProd ? config.get<string>('CORS_ORIGIN')?.split(',') : true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-admin-bootstrap-secret',
+    ],
   });
 
   // Validaciones globales

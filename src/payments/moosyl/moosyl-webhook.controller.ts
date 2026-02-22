@@ -19,6 +19,11 @@ export class MoosylWebhookController {
       );
     }
     const signature = req.headers['x-webhook-signature'] as string | undefined;
+    if (!signature?.trim()) {
+      throw new BadRequestException(
+        'Missing webhook signature (expected header: x-webhook-signature, format: sha256=<hex>)',
+      );
+    }
     const eventType = req.headers['x-webhook-event'] as string | undefined;
 
     await this.moosyl.handleWebhook(rawBody, signature, eventType);

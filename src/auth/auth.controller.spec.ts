@@ -100,7 +100,7 @@ describe('AuthController', () => {
   });
 
   describe('POST /auth/otp/verify', () => {
-    it('should verify OTP and return accessToken and user', async () => {
+    it('should verify OTP and return access_token and user', async () => {
       const dto: OtpVerifyDto = {
         phone: '+34600000000',
         code: '123456',
@@ -116,7 +116,7 @@ describe('AuthController', () => {
       };
       otpService.verifyOtp.mockResolvedValue(mockUser);
       authService.signOtpUser.mockReturnValue({
-        accessToken: 'jwt-token',
+        access_token: 'jwt-token',
         user: { ...mockUser, name: undefined, email: undefined },
       });
 
@@ -128,7 +128,7 @@ describe('AuthController', () => {
         dto.desiredRole,
       );
       expect(authService.signOtpUser).toHaveBeenCalledWith(mockUser);
-      expect(result).toHaveProperty('accessToken', 'jwt-token');
+      expect(result).toHaveProperty('access_token', 'jwt-token');
       expect(result).toHaveProperty('user');
     });
   });

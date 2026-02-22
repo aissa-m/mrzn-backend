@@ -117,7 +117,7 @@ export class AuthService {
 
   /**
    * Emite tokens para un usuario ya validado (p. ej. tras OTP verify).
-   * Devuelve accessToken y user con phone para consistencia con el front.
+   * Devuelve access_token y user (misma forma que register/login).
    */
   signOtpUser(user: {
     id: number;
@@ -127,10 +127,6 @@ export class AuthService {
     phone: string | null;
     stores?: any[];
   }) {
-    const out = this.sign(user);
-    return {
-      accessToken: out.access_token,
-      user: out.user,
-    };
+    return this.sign(user);
   }
 }

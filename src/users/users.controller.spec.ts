@@ -21,6 +21,8 @@ describe('UsersController', () => {
   beforeEach(async () => {
     const mockUsersService = {
       getMe: jest.fn(),
+      updateMe: jest.fn(),
+      clearPersonalInfo: jest.fn(),
       updateAvatar: jest.fn(),
     };
 
@@ -42,6 +44,30 @@ describe('UsersController', () => {
       const result = await controller.me(mockCurrentUser);
 
       expect(usersService.getMe).toHaveBeenCalledWith(mockCurrentUser.id);
+      expect(result).toEqual(mockUser);
+    });
+  });
+
+  describe('updateMe', () => {
+    it('should call updateMe with user id and dto', async () => {
+      const dto = { firstName: 'Juan' };
+      const updated = { ...mockUser, firstName: 'Juan' };
+      usersService.updateMe.mockResolvedValue(updated);
+
+      const result = await controller.updateMe(mockCurrentUser, dto);
+
+      expect(usersService.updateMe).toHaveBeenCalledWith(mockCurrentUser.id, dto);
+      expect(result).toEqual(updated);
+    });
+  });
+
+  describe('clearPersonalInfo', () => {
+    it('should call clearPersonalInfo with user id', async () => {
+      usersService.clearPersonalInfo.mockResolvedValue(mockUser);
+
+      const result = await controller.clearPersonalInfo(mockCurrentUser);
+
+      expect(usersService.clearPersonalInfo).toHaveBeenCalledWith(mockCurrentUser.id);
       expect(result).toEqual(mockUser);
     });
   });

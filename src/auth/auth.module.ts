@@ -2,13 +2,18 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
+import { OtpService } from './otp.service';
+import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
     PassportModule,
+    SmsModule,
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: {
@@ -17,10 +22,7 @@ import { JwtStrategy } from './jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    JwtStrategy /*,{ provide: APP_GUARD, useClass: RolesGuard } */,
-  ],
-  exports: [JwtModule], // por si otros módulos quieren firmar/verificar
+  providers: [AuthService, OtpService, JwtStrategy],
+  exports: [JwtModule],
 })
 export class AuthModule {}

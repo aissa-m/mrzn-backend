@@ -5,7 +5,8 @@ import { ROLES_KEY } from './roles.decorator';
 // Define un tipo explícito para el usuario dentro de req.user
 export interface JwtUserPayload {
   id: number;
-  email: string;
+  email?: string;
+  phone?: string;
   role?: 'ADMIN' | 'STORE_OWNER' | 'USER';
 }
 

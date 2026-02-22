@@ -20,6 +20,12 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
+  // Listado público de tiendas (incluye número de productos)
+  @Get()
+  findAll() {
+    return this.storesService.findAll();
+  }
+
   // Crear tienda (STORE_OWNER o ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('STORE_OWNER', 'ADMIN')

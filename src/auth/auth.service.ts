@@ -20,9 +20,10 @@ export class AuthService {
     access_token: string;
     user: {
       id: number;
-      name: string;
-      email: string;
+      name?: string;
+      email?: string;
       role: string;
+      phone?: string;
       stores: any[];
     };
   }> {
@@ -53,9 +54,10 @@ export class AuthService {
     access_token: string;
     user: {
       id: number;
-      name: string;
-      email: string;
+      name?: string;
+      email?: string;
       role: string;
+      phone?: string;
       stores: any[];
     };
   }> {
@@ -67,9 +69,10 @@ export class AuthService {
       },
     });
 
-    console.log(user);
-
     if (!user) {
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+    if (!user.password) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -85,25 +88,49 @@ export class AuthService {
     return this.sign(safeUser);
   }
 
-  // safeUser ya no tiene password y sí tiene stores
+  // safeUser ya no tiene password y sí tiene stores (email/name opcionales para OTP)
   private sign(user: {
     id: number;
-    name: string;
-    email: string;
+    name: string | null;
+    email: string | null;
     role: string;
+    phone?: string | null;
     stores?: any[];
   }) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload: { sub: number; email?: string; phone?: string; role: string } =
+      { sub: user.id, role: user.role };
+    if (user.email) payload.email = user.email;
+    if (user.phone) payload.phone = user.phone;
 
     return {
       access_token: this.jwt.sign(payload),
       user: {
         id: user.id,
-        name: user.name,
-        email: user.email,
+        name: user.name ?? undefined,
+        email: user.email ?? undefined,
         role: user.role,
-        stores: user.stores ?? [], // si no es owner → []
+        phone: user.phone ?? undefined,
+        stores: user.stores ?? [],
       },
+    };
+  }
+
+  /**
+   * Emite tokens para un usuario ya validado (p. ej. tras OTP verify).
+   * Devuelve accessToken y user con phone para consistencia con el front.
+   */
+  signOtpUser(user: {
+    id: number;
+    name: string | null;
+    email: string | null;
+    role: string;
+    phone: string | null;
+    stores?: any[];
+  }) {
+    const out = this.sign(user);
+    return {
+      accessToken: out.access_token,
+      user: out.user,
     };
   }
 }

@@ -1,9 +1,10 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-// Reutilizamos el tipo del usuario del token
+// Reutilizamos el tipo del usuario del token (email/phone según login: email+password o OTP)
 export interface JwtUserPayload {
   id: number;
-  email: string;
+  email?: string;
+  phone?: string;
   role?: 'ADMIN' | 'STORE_OWNER' | 'USER';
 }
 

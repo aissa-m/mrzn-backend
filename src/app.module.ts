@@ -15,6 +15,11 @@ import { join } from 'path';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CategoriesModule } from './categories/categories.module';
 import { AttributesModule } from './attributes/attributes.module';
+import { PushTokensModule } from './push-tokens/push-tokens.module';
+import { MoosylModule } from './payments/moosyl/moosyl.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { CartModule } from './cart/cart.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -27,13 +32,18 @@ import { AttributesModule } from './attributes/attributes.module';
     ProductsModule,
     OrdersModule,
     ChatModule,
+    FavoritesModule,
+    CartModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'uploads'),
       serveRoot: '/uploads',
     }),
     NotificationsModule,
+    PushTokensModule,
     CategoriesModule,
     AttributesModule,
+    AdminModule,
+    MoosylModule,
   ],
   controllers: [AppController],
   providers: [AppService],

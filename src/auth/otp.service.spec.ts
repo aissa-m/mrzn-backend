@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OtpService, DEV_OTP_BYPASS } from './otp.service';
-import { SMS_SERVICE } from '../sms/sms.interface';
-import * as bcrypt from 'bcrypt';
+import { OtpService } from './otp.service';
+import { OTP_PROVIDER } from './interfaces/otp-provider.interface';
 
-jest.mock('bcrypt');
-
-const mockSms = { sendOtp: jest.fn().mockResolvedValue(undefined) };
+const mockOtpProvider = {
+  requestOtp: jest.fn(),
+  verifyCode: jest.fn(),
+};
 
 describe('OtpService', () => {
   let service: OtpService;
@@ -18,13 +18,6 @@ describe('OtpService', () => {
 
   beforeEach(async () => {
     prisma = {
-      otpCode: {
-        count: jest.fn(),
-        updateMany: jest.fn(),
-        create: jest.fn(),
-        findFirst: jest.fn(),
-        update: jest.fn(),
-      },
       user: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -35,64 +28,39 @@ describe('OtpService', () => {
       providers: [
         OtpService,
         { provide: PrismaService, useValue: prisma },
-        { provide: SMS_SERVICE, useValue: mockSms },
+        { provide: OTP_PROVIDER, useValue: mockOtpProvider },
       ],
     }).compile();
 
     service = module.get<OtpService>(OtpService);
     jest.clearAllMocks();
-    (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
-    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    mockOtpProvider.requestOtp.mockResolvedValue({ success: true });
+    mockOtpProvider.verifyCode.mockResolvedValue(undefined);
   });
 
   describe('requestOtp', () => {
-    it('should create OTP and return success (and devOtp in dev)', async () => {
-      const orig = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'development';
-      prisma.otpCode.count.mockResolvedValue(0);
-      prisma.otpCode.updateMany.mockResolvedValue({ count: 0 });
-      prisma.otpCode.create.mockResolvedValue({});
-
+    it('should delegate to provider and return success', async () => {
       const result = await service.requestOtp(phone, desiredRole);
 
       expect(result.success).toBe(true);
-      expect(result.devOtp).toBeDefined();
-      expect(result.devOtp).toMatch(/^[0-9]{6}$/);
-      expect(prisma.otpCode.create).toHaveBeenCalled();
-      process.env.NODE_ENV = orig;
+      expect(mockOtpProvider.requestOtp).toHaveBeenCalledWith(phone.trim());
     });
 
-    it('should throw OTP_RATE_LIMIT when too many requests for phone', async () => {
-      prisma.otpCode.count.mockResolvedValue(5);
+    it('should propagate OTP_RATE_LIMIT from provider', async () => {
+      mockOtpProvider.requestOtp.mockRejectedValue(
+        new BadRequestException({ code: 'OTP_RATE_LIMIT', message: 'Too many requests' }),
+      );
 
-      try {
-        await service.requestOtp(phone, desiredRole);
-      } catch (e: any) {
-        expect(e).toBeInstanceOf(BadRequestException);
-        expect(e.response?.code).toBe('OTP_RATE_LIMIT');
-      }
-      expect(prisma.otpCode.create).not.toHaveBeenCalled();
+      await expect(service.requestOtp(phone, desiredRole)).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('verifyOtp', () => {
-    const validRecord = {
-      id: 1,
-      phone,
-      codeHash: 'hashed',
-      attempts: 0,
-      expiresAt: new Date(Date.now() + 60000),
-      consumedAt: null,
-    };
-
-    it('should return user and allow dev bypass code in development', async () => {
-      process.env.NODE_ENV = 'development';
-      prisma.otpCode.findFirst.mockResolvedValue(validRecord);
-      prisma.otpCode.update.mockResolvedValue({});
+    it('should verify via provider then return new user when no user exists', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({
         id: 1,
-        phone,
+        phone: '+34600000000',
         role: 'USER',
         name: null,
         email: null,
@@ -100,14 +68,15 @@ describe('OtpService', () => {
         stores: [],
       });
 
-      const user = await service.verifyOtp(phone, DEV_OTP_BYPASS, desiredRole);
+      const user = await service.verifyOtp(phone, '123456', desiredRole);
 
+      expect(mockOtpProvider.verifyCode).toHaveBeenCalledWith(phone.trim(), '123456');
       expect(user.id).toBe(1);
       expect(user.role).toBe('USER');
       expect(user.phone).toBe(phone);
       expect(prisma.user.create).toHaveBeenCalledWith({
         data: {
-          phone,
+          phone: '+34600000000',
           role: 'USER',
           name: null,
           email: null,
@@ -117,47 +86,19 @@ describe('OtpService', () => {
       });
     });
 
-    it('should throw OTP_EXPIRED when no active OTP', async () => {
-      prisma.otpCode.findFirst.mockResolvedValue(null);
+    it('should propagate OTP_EXPIRED from provider and not touch user', async () => {
+      mockOtpProvider.verifyCode.mockRejectedValue(
+        new BadRequestException({ code: 'OTP_EXPIRED', message: 'Expired' }),
+      );
 
-      try {
-        await service.verifyOtp(phone, '123456', desiredRole);
-      } catch (e: any) {
-        expect(e).toBeInstanceOf(BadRequestException);
-        expect(e.response?.code).toBe('OTP_EXPIRED');
-      }
-    });
-
-    it('should throw OTP_INVALID when code is wrong', async () => {
-      prisma.otpCode.findFirst.mockResolvedValue(validRecord);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-      prisma.otpCode.update.mockResolvedValue({});
-
-      try {
-        await service.verifyOtp(phone, '999999', desiredRole);
-      } catch (e: any) {
-        expect(e).toBeInstanceOf(BadRequestException);
-        expect(e.response?.code).toBe('OTP_INVALID');
-      }
-    });
-
-    it('should throw OTP_TOO_MANY_ATTEMPTS after max attempts', async () => {
-      const recordMax = { ...validRecord, attempts: 4 };
-      prisma.otpCode.findFirst.mockResolvedValue(recordMax);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-      prisma.otpCode.update.mockResolvedValue({});
-
-      try {
-        await service.verifyOtp(phone, 'wrong', desiredRole);
-      } catch (e: any) {
-        expect(e).toBeInstanceOf(BadRequestException);
-        expect(e.response?.code).toBe('OTP_TOO_MANY_ATTEMPTS');
-      }
+      await expect(service.verifyOtp(phone, '123456', desiredRole)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
 
     it('should throw ROLE_MISMATCH when existing user has different role', async () => {
-      prisma.otpCode.findFirst.mockResolvedValue(validRecord);
-      prisma.otpCode.update.mockResolvedValue({});
+      mockOtpProvider.verifyCode.mockResolvedValue(undefined);
       prisma.user.findUnique.mockResolvedValue({
         id: 2,
         phone,
@@ -168,13 +109,15 @@ describe('OtpService', () => {
         stores: [],
       });
 
+      let err: any;
       try {
         await service.verifyOtp(phone, '123456', 'USER');
-      } catch (e: any) {
-        expect(e).toBeInstanceOf(ConflictException);
-        expect(e.response?.code).toBe('ROLE_MISMATCH');
-        expect(e.response?.currentRole).toBe('STORE_OWNER');
+      } catch (e) {
+        err = e;
       }
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.response?.code).toBe('ROLE_MISMATCH');
+      expect(err.response?.currentRole).toBe('STORE_OWNER');
     });
 
     it('should return existing user when role matches', async () => {
@@ -187,8 +130,7 @@ describe('OtpService', () => {
         password: null,
         stores: [],
       };
-      prisma.otpCode.findFirst.mockResolvedValue(validRecord);
-      prisma.otpCode.update.mockResolvedValue({});
+      mockOtpProvider.verifyCode.mockResolvedValue(undefined);
       prisma.user.findUnique.mockResolvedValue(existingUser);
 
       const user = await service.verifyOtp(phone, '123456', desiredRole);

@@ -8,6 +8,9 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { OtpService } from './otp.service';
 import { SmsModule } from '../sms/sms.module';
+import { OTP_PROVIDER } from './interfaces/otp-provider.interface';
+import { LocalOtpProvider } from './providers/local-otp.provider';
+import { TwilioOtpProvider } from './providers/twilio-otp.provider';
 
 @Module({
   imports: [
@@ -22,7 +25,20 @@ import { SmsModule } from '../sms/sms.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, JwtStrategy],
+  providers: [
+    AuthService,
+    OtpService,
+    JwtStrategy,
+    LocalOtpProvider,
+    TwilioOtpProvider,
+    {
+      provide: OTP_PROVIDER,
+      useFactory: (local: LocalOtpProvider, twilio: TwilioOtpProvider) => {
+        return process.env.OTP_PROVIDER === 'twilio' ? twilio : local;
+      },
+      inject: [LocalOtpProvider, TwilioOtpProvider],
+    },
+  ],
   exports: [JwtModule],
 })
 export class AuthModule {}

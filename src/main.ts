@@ -53,8 +53,26 @@ async function bootstrap() {
 
   // CORS por entorno
   const isProd = config.get<string>('NODE_ENV') === 'production';
+
+  const allowedOrigins = (config.get<string>('CORS_ORIGIN') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: isProd ? config.get<string>('CORS_ORIGIN')?.split(',') : true,
+    origin: (origin, callback) => {
+      // Requests sin Origin (curl, server-to-server) -> permitir
+      if (!origin) return callback(null, true);
+
+      // En dev o si no hay lista, permitir
+      if (!isProd || allowedOrigins.length === 0) return callback(null, true);
+
+      // Compara exacto
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // Bloquea con error explícito (útil en logs)
+      return callback(new Error(`CORS blocked for origin: ${origin}`), false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -64,6 +82,7 @@ async function bootstrap() {
       'x-webhook-signature',
       'x-webhook-event',
     ],
+    optionsSuccessStatus: 204,
   });
 
   // Validaciones globales

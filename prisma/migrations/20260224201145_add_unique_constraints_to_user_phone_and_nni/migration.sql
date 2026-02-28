@@ -1,0 +1,1 @@
+-- dummy migration (already applied in DB)

@@ -57,6 +57,16 @@ export class CategoriesService {
   }
 
   async create(dto: CreateCategoryDto) {
+    if (dto.parentId != null) {
+      const parent = await this.prismaCategory.findUnique({
+        where: { id: dto.parentId },
+        select: { id: true },
+      });
+      if (!parent) {
+        throw new BadRequestException('La categoría padre no existe');
+      }
+    }
+
     const baseSlug = this.generateSlug(dto.name);
     const slug = await this.generateUniqueSlug(baseSlug);
 
@@ -66,6 +76,7 @@ export class CategoriesService {
           name: dto.name.trim(),
           description: dto.description?.trim() || null,
           slug,
+          parentId: dto.parentId ?? undefined,
         },
       });
     } catch (e) {
@@ -104,15 +115,18 @@ export class CategoriesService {
     const [items, total] = await this.prisma.$transaction([
       this.prismaCategory.findMany({
         where,
-        orderBy: { [sortBy]: sortOrder },
+        orderBy: [{ parentId: 'asc' }, { name: 'asc' }, { [sortBy]: sortOrder }],
         skip: (page - 1) * limit,
         take: limit,
-        include: {
-          _count: {
-            select: {
-              products: true,
-            },
-          },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          slug: true,
+          parentId: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: { select: { products: true } },
         },
       }),
       this.prismaCategory.count({ where }),
@@ -132,6 +146,7 @@ export class CategoriesService {
         name: cat.name,
         description: cat.description,
         slug: cat.slug,
+        parentId: cat.parentId,
         createdAt: cat.createdAt,
         updatedAt: cat.updatedAt,
         productCount: cat._count.products,
@@ -160,6 +175,7 @@ export class CategoriesService {
       name: category.name,
       description: category.description,
       slug: category.slug,
+      parentId: category.parentId ?? undefined,
       createdAt: category.createdAt,
       updatedAt: category.updatedAt,
       productCount: category._count.products,
@@ -187,6 +203,7 @@ export class CategoriesService {
       name: category.name,
       description: category.description,
       slug: category.slug,
+      parentId: category.parentId ?? undefined,
       createdAt: category.createdAt,
       updatedAt: category.updatedAt,
       productCount: category._count.products,
@@ -213,6 +230,37 @@ export class CategoriesService {
 
     if (dto.description !== undefined) {
       data.description = dto.description?.trim() || null;
+    }
+
+    if (dto.parentId !== undefined) {
+      if (dto.parentId === id) {
+        throw new BadRequestException(
+          'Una categoría no puede ser padre de sí misma',
+        );
+      }
+      const parent = await this.prismaCategory.findUnique({
+        where: { id: dto.parentId },
+        select: { id: true, parentId: true },
+      });
+      if (!parent) {
+        throw new BadRequestException('La categoría padre no existe');
+      }
+      // Evitar ciclos: subir desde el nuevo padre; si encontramos id actual -> ciclo
+      let current: { id: number; parentId: number | null } | null = parent;
+      while (current) {
+        if (current.id === id) {
+          throw new BadRequestException(
+            'No se puede asignar un descendiente como padre (evitar ciclo)',
+          );
+        }
+        if (!current.parentId) break;
+        const next = await this.prismaCategory.findUnique({
+          where: { id: current.parentId },
+          select: { id: true, parentId: true },
+        });
+        current = next;
+      }
+      data.parentId = dto.parentId;
     }
 
     try {

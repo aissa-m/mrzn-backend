@@ -1,8 +1,8 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { SMS_SERVICE } from '../../sms/sms.interface';
-import type { ISmsService } from '../../sms/sms.interface';
+import { SMS_SERVICE } from '../../../sms/sms.interface';
+import type { ISmsService } from '../../../sms/sms.interface';
 import type { IOtpProvider } from '../interfaces/otp-provider.interface';
 
 const OTP_LENGTH = 6;

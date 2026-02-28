@@ -40,6 +40,7 @@ describe('AdminAttributesController', () => {
     label: 'Red',
     value: 'red',
     displayOrder: 0,
+    parentOptionId: null as number | null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -49,6 +50,7 @@ describe('AdminAttributesController', () => {
       getCategoryAttributes: jest.fn(),
       createCategoryAttribute: jest.fn(),
       updateCategoryAttribute: jest.fn(),
+      reorderCategoryAttributes: jest.fn(),
       addAttributeOption: jest.fn(),
       deleteCategoryAttribute: jest.fn(),
       getAttributeOptions: jest.fn(),
@@ -109,6 +111,27 @@ describe('AdminAttributesController', () => {
         dto,
       );
       expect(result).toEqual(mockAttribute);
+    });
+  });
+
+  describe('reorderCategoryAttributes', () => {
+    it('should call service and return void (204 No Content)', async () => {
+      const categoryId = 10;
+      const items = [
+        { id: 1, displayOrder: 2 },
+        { id: 2, displayOrder: 0 },
+      ];
+      attributesService.reorderCategoryAttributes.mockResolvedValue(undefined);
+
+      const result = await controller.reorderCategoryAttributes(categoryId, {
+        items,
+      });
+
+      expect(attributesService.reorderCategoryAttributes).toHaveBeenCalledWith(
+        categoryId,
+        items,
+      );
+      expect(result).toBeUndefined();
     });
   });
 
@@ -175,8 +198,32 @@ describe('AdminAttributesController', () => {
 
       expect(attributesService.getAttributeOptions).toHaveBeenCalledWith(
         attributeId,
+        undefined,
       );
       expect(result).toEqual([mockOption]);
+    });
+
+    it('should call service with parentOptionId when query param is passed', async () => {
+      const attributeId = 1;
+      const parentOptionId = 100;
+      const filteredOptions = [
+        { ...mockOption, id: 2, parentOptionId: 100, label: 'Corolla' },
+      ];
+      attributesService.getAttributeOptions.mockResolvedValue(
+        filteredOptions as any,
+      );
+
+      const result = await controller.getAttributeOptions(
+        attributeId,
+        String(parentOptionId),
+      );
+
+      expect(attributesService.getAttributeOptions).toHaveBeenCalledWith(
+        attributeId,
+        parentOptionId,
+      );
+      expect(result).toEqual(filteredOptions);
+      expect(result[0]).toHaveProperty('parentOptionId', 100);
     });
   });
 

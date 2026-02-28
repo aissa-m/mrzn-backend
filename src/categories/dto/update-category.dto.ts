@@ -1,5 +1,6 @@
 // src/categories/dto/update-category.dto.ts
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
 
 export class UpdateCategoryDto {
   @IsOptional()
@@ -11,5 +12,11 @@ export class UpdateCategoryDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  parentId?: number;
 }
 

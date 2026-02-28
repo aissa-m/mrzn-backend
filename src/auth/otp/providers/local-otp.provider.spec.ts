@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { LocalOtpProvider, DEV_OTP_BYPASS } from './local-otp.provider';
-import { SMS_SERVICE } from '../../sms/sms.interface';
+import { SMS_SERVICE } from '../../../sms/sms.interface';
 import * as bcrypt from 'bcrypt';
 
 jest.mock('bcrypt');

@@ -6,7 +6,7 @@ import {
   UseGuards,
   RawBodyRequest,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { MoosylService } from './moosyl.service';
 import { WalletTopupDto } from './dto/wallet-topup.dto';

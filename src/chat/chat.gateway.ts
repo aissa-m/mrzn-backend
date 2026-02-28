@@ -10,14 +10,20 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { UseGuards, Inject, forwardRef } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
+import type { JwtUserPayload } from '../auth/types/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from './chat.service';
 
-interface AuthenticatedSocket extends Socket {
-  userId: number;
-  userEmail?: string;
-  userRole?: string;
+/** Socket with auth payload attached by WsJwtGuard to client.data */
+export interface AuthenticatedSocket extends Socket {
+  data: Socket['data'] & {
+    userId: number;
+    userEmail?: string;
+    userPhone?: string;
+    userRole?: string;
+  };
 }
 
 @WebSocketGateway({
@@ -40,17 +46,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
     @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
   ) {}
 
-  async handleConnection(client: AuthenticatedSocket) {
+  async handleConnection(client: Socket) {
     try {
-      // Extraer userId del token (WsJwtGuard lo setea)
-      const userId = client.userId;
+      // Nest does not run guards before handleConnection; authenticate here and attach to client.data
+      const token = WsJwtGuard.extractToken(client);
+      if (!token) {
+        throw new Error('Missing authentication token');
+      }
+      const payload = await this.jwtService.verifyAsync(token);
+      (client.data as Record<string, unknown>).userId = payload.sub;
+      (client.data as Record<string, unknown>).userEmail = payload.email;
+      (client.data as Record<string, unknown>).userPhone = payload.phone;
+      (client.data as Record<string, unknown>).userRole = payload.role;
 
-      if (!userId) {
-        throw new Error('Missing user in socket context');
+      const userId = payload.sub as number;
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Socket connected with userId:', userId);
       }
 
       if (!this.onlineUsers.has(userId)) {
@@ -70,8 +86,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emitir presencia a contactos
       this.broadcastPresence(userId, 'online');
-
-      // console.log(`Chat: User ${userId} connected (${client.id})`);
     } catch (error) {
       console.error('Chat connection error:', error);
       client.disconnect();
@@ -79,7 +93,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: AuthenticatedSocket) {
-    const userId = client.userId;
+    const userId = client.data?.userId;
+    if (userId == null) return;
 
     const userSockets = this.onlineUsers.get(userId);
     if (userSockets) {
@@ -119,7 +134,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversationId: number; content: string },
   ) {
-    const userId = client.userId;
+    const userId = client.data.userId;
     const { conversationId, content } = data;
 
     if (!userId) {
@@ -131,12 +146,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     // Reutilizamos la lógica del servicio (valida pertenencia, notifica y emite WS)
+    const userPayload: JwtUserPayload = {
+      id: userId,
+      email: client.data.userEmail ?? '',
+      role: client.data.userRole as JwtUserPayload['role'],
+    };
     const message = await this.chatService.sendText(
-      {
-        id: userId,
-        email: client.userEmail ?? '',
-        role: client.userRole as any,
-      },
+      userPayload,
       { conversationId, content: content.trim() },
     );
 
@@ -157,7 +173,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: number },
   ) {
     const { conversationId } = data;
-    const userId = client.userId;
+    const userId = client.data.userId;
 
     if (!this.typingUsers.has(conversationId)) {
       this.typingUsers.set(conversationId, new Set());
@@ -182,7 +198,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: number },
   ) {
     const { conversationId } = data;
-    const userId = client.userId;
+    const userId = client.data.userId;
 
     this.typingUsers.get(conversationId)?.delete(userId);
 

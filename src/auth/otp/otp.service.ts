@@ -3,7 +3,7 @@ import {
   Inject,
   ConflictException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { OTP_PROVIDER } from './interfaces/otp-provider.interface';
 import type { IOtpProvider } from './interfaces/otp-provider.interface';

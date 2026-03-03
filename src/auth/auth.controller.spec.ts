@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { OtpService } from './otp.service';
+import { OtpService } from './otp/otp.service';
 import { RegisterDto, LoginDto, OtpRequestDto, OtpVerifyDto } from './dto';
 
 describe('AuthController', () => {

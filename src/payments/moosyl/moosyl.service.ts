@@ -13,7 +13,7 @@ export class MoosylService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly moosylApi: MoosylApiService,
-  ) {}
+  ) { }
 
   private getWebhookSecret(): string {
     const secret = this.config.get<string>('MOOSYL_WEBHOOK_SECRET');
@@ -88,6 +88,12 @@ export class MoosylService {
    * Doc: https://docs.moosyl.com/webhooks
    */
   verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
+
+    console.log("RAW BODY LENGTH:", rawBody.length);
+    console.log("RAW BODY STRING:");
+    console.log(JSON.stringify(rawBody.toString("utf8")));
+    
+
     if (!signature || typeof signature !== 'string' || !signature.startsWith('sha256=')) {
       return false;
     }

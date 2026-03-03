@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { RolesGuard, JwtUserPayload } from './roles.guard';
-import { ROLES_KEY } from './roles.decorator';
+import { RolesGuard } from './roles.guard';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+import type { JwtUserPayload } from '../types';
 
 describe('RolesGuard', () => {
   let guard: RolesGuard;
@@ -81,4 +82,3 @@ describe('RolesGuard', () => {
     });
   });
 });
-

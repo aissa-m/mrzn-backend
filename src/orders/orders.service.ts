@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OwnershipService } from '../common/services/ownership.service';
 import { OrderStatus, Role, Prisma } from '@prisma/client';
-import { JwtUserPayload } from 'src/auth/roles.guard';
+import { JwtUserPayload } from '../auth/types';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 

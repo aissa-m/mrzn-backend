@@ -3,18 +3,22 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
-import { Roles } from '../../auth/roles.decorator';
-import { RolesGuard } from '../../auth/roles.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { RolesGuard } from '../../auth/guards/roles.guard';
 import { AttributesService } from '../../attributes/attributes.service';
 import { CreateCategoryAttributeDto } from '../../attributes/dto/create-category-attribute.dto';
 import { UpdateCategoryAttributeDto } from '../../attributes/dto/update-category-attribute.dto';
+import { ReorderCategoryAttributesDto } from '../../attributes/dto/reorder-category-attributes.dto';
 import { CreateAttributeOptionDto } from '../../attributes/dto/create-attribute-option.dto';
 import { UpdateAttributeOptionDto } from '../../attributes/dto/update-attribute-option.dto';
 
@@ -49,8 +53,31 @@ export class AdminAttributesController {
   @Get('attributes/:attributeId/options')
   getAttributeOptions(
     @Param('attributeId', ParseIntPipe) attributeId: number,
+    @Query('parentOptionId') parentOptionId?: string,
   ) {
-    return this.attributesService.getAttributeOptions(attributeId);
+    const parentId =
+      parentOptionId !== undefined && parentOptionId !== ''
+        ? parseInt(parentOptionId, 10)
+        : undefined;
+    if (parentOptionId !== undefined && parentOptionId !== '' && isNaN(Number(parentId))) {
+      return this.attributesService.getAttributeOptions(attributeId);
+    }
+    if (parentId === undefined) {
+      return this.attributesService.getAttributeOptions(attributeId);
+    }
+    return this.attributesService.getAttributeOptions(attributeId, parentId);
+  }
+
+  @Patch('categories/:categoryId/attributes/reorder')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  reorderCategoryAttributes(
+    @Param('categoryId', ParseIntPipe) categoryId: number,
+    @Body() dto: ReorderCategoryAttributesDto,
+  ) {
+    return this.attributesService.reorderCategoryAttributes(
+      categoryId,
+      dto.items ?? [],
+    );
   }
 
   @Patch('attributes/:attributeId')

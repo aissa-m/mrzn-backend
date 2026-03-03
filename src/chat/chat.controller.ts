@@ -14,9 +14,9 @@ import {
   Delete,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { JwtUserPayload } from '../auth/types';
+import type { JwtUserPayload } from '../auth/types/auth.types';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { CursorDto, PageDto } from './dto/pagination.dto';

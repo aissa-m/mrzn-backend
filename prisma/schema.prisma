@@ -282,6 +282,9 @@ model Category {
   name        String  @unique
   description String?
   slug        String  @unique // URL-friendly identifier
+  parentId    Int?
+  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryParent")
 
   products   Product[] // 👈 lado inverso de Product.category
   attributes CategoryAttribute[]
@@ -290,6 +293,7 @@ model Category {
   updatedAt DateTime @updatedAt
 
   @@index([slug])
+  @@index([parentId])
 }
 
 model Order {
@@ -477,6 +481,12 @@ model CategoryAttribute {
   minValue Float? // Valor mínimo permitido
   maxValue Float? // Valor máximo permitido
 
+  // Dependencia entre atributos (selects dependientes): este atributo solo tiene sentido respecto al padre (ej. Model depende de Make).
+  // Solo permitido para tipo SELECT o MULTISELECT. El padre debe ser de la misma categoría.
+  dependsOnAttributeId Int?
+  dependsOnAttribute   CategoryAttribute?  @relation("CategoryAttributeDependsOn", fields: [dependsOnAttributeId], references: [id], onDelete: SetNull)
+  dependentAttributes  CategoryAttribute[]  @relation("CategoryAttributeDependsOn")
+
   // Valores de atributos asociados a este atributo
   values ProductAttributeValue[]
 
@@ -491,6 +501,7 @@ model CategoryAttribute {
   @@index([categoryId])
   @@index([slug])
   @@index([isFilterable])
+  @@index([dependsOnAttributeId])
 }
 
 /**
@@ -498,6 +509,10 @@ model CategoryAttribute {
  * Ejemplo: Para atributo "Color" -> opciones: "Red", "Blue", "Green"
  * IMPORTANTE: El campo value debe normalizarse a minúsculas y sin espacios sobrantes
  * para evitar duplicados lógicos. Esto se hace en los servicios.
+ *
+ * parentOptionId habilita "selects dependientes": una opción puede depender de otra
+ * (ej. Model depende de Make). El padre debe pertenecer a otro atributo (ej. Make);
+ * las opciones con el mismo parentOptionId se filtran juntas (ej. "modelos de esta marca").
  */
 model AttributeOption {
   id                  Int               @id @default(autoincrement())
@@ -509,6 +524,11 @@ model AttributeOption {
   // NOTA: value debe normalizarse a minúsculas sin espacios en servicios
   displayOrder Int    @default(0) // Orden de visualización
 
+  // Opción padre para selects dependientes (ej. Model → Make). Null = opción independiente.
+  parentOptionId Int?
+  parentOption   AttributeOption?  @relation("AttributeOptionParent", fields: [parentOptionId], references: [id], onDelete: SetNull)
+  children       AttributeOption[] @relation("AttributeOptionParent")
+
   // Valores de productos que usan esta opción
   productValues ProductAttributeValue[]
 
@@ -517,6 +537,7 @@ model AttributeOption {
 
   @@unique([categoryAttributeId, value])
   @@index([categoryAttributeId])
+  @@index([parentOptionId])
 }
 
 /**

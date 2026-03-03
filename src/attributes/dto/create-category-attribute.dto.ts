@@ -6,10 +6,9 @@ import {
   IsBoolean,
   IsInt,
   IsNumber,
-  Min,
-  Max,
   ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { AttributeType } from '@prisma/client';
 
 export class CreateCategoryAttributeDto {
@@ -56,5 +55,11 @@ export class CreateCategoryAttributeDto {
   @IsOptional()
   @IsNumber()
   maxValue?: number;
+
+  /** Atributo del que depende (ej. Model depende de Make). Solo permitido para SELECT/MULTISELECT. */
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  dependsOnAttributeId?: number;
 }
 

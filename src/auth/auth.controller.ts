@@ -1,6 +1,6 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { OtpService } from './otp.service';
+import { OtpService } from './otp/otp.service';
 import { RegisterDto, LoginDto, OtpRequestDto, OtpVerifyDto } from './dto';
 import { Throttle } from '@nestjs/throttler';
 import { ThrottlerGuard } from '@nestjs/throttler';

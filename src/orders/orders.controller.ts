@@ -12,9 +12,10 @@ import {
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import * as rolesGuard from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import type { JwtUserPayload } from '../auth/types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { QueryOrdersDto } from './dto/query-orders.dto';
@@ -28,7 +29,7 @@ export class OrdersController {
    * ADMIN: Listado general de pedidos
    */
   @Get()
-  @UseGuards(rolesGuard.RolesGuard)
+  @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   findAll() {
     return this.ordersService.findAll();
@@ -41,7 +42,7 @@ export class OrdersController {
 
 
   @Get('store/:storeId')
-  @UseGuards(rolesGuard.RolesGuard)
+  @UseGuards(RolesGuard)
   @Roles(Role.STORE_OWNER, Role.ADMIN)
   findByStore(@Param('storeId', ParseIntPipe) storeId: number, @CurrentUser() user: { id: number; role?: Role }) {
     return this.ordersService.findByStore(storeId, user);
@@ -58,7 +59,7 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
-  @UseGuards(rolesGuard.RolesGuard)
+  @UseGuards(RolesGuard)
   @Roles(Role.STORE_OWNER, Role.ADMIN)
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
@@ -74,7 +75,7 @@ export class OrdersController {
   }
 
   @Delete(':id')
-  @UseGuards(rolesGuard.RolesGuard)
+  @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.ordersService.remove(id);
@@ -82,7 +83,7 @@ export class OrdersController {
 
   @Get()
   findMany(
-    @CurrentUser() user: rolesGuard.JwtUserPayload,
+    @CurrentUser() user: JwtUserPayload,
     @Query() dto: QueryOrdersDto,
   ) {
     return this.ordersService.findMany(user, dto);

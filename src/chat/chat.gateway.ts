@@ -180,7 +180,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     this.typingUsers.get(conversationId)!.add(userId);
 
-    // Emitir a otros participantes
     client.to(`conversation:${conversationId}`).emit('typing:start', {
       conversationId,
       userId,

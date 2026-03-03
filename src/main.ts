@@ -27,7 +27,7 @@ async function bootstrap() {
     express.json({
       limit: rawBodyLimit,
       verify: (req: express.Request & { rawBody?: Buffer }, _res, buf: Buffer) => {
-        if (req.originalUrl?.includes('/webhooks/moosyl')) {
+        if (req.url?.includes('/webhooks/moosyl')) {
           req.rawBody = buf;
         }
       },

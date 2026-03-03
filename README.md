@@ -57,6 +57,10 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Atributos dinámicos y selects dependientes
+
+Los atributos por categoría (SELECT/MULTISELECT) pueden tener opciones con **parentOptionId**: una opción "hija" apunta a una opción "padre" de otro atributo (ej. Model → Make). Así se habilitan selects dependientes: el frontend puede pedir solo las opciones hijas con `GET /attributes/:attributeId/options?parentOptionId=<id>`.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

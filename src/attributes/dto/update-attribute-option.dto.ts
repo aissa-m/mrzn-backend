@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsInt } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateAttributeOptionDto {
   @IsOptional()
@@ -11,5 +12,12 @@ export class UpdateAttributeOptionDto {
 
   @IsOptional()
   @IsInt()
+  @Type(() => Number)
   displayOrder?: number;
+
+  /** Opción padre para selects dependientes. Null para opción independiente. */
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  parentOptionId?: number | null;
 }

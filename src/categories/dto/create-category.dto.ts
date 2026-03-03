@@ -1,5 +1,13 @@
 // src/categories/dto/create-category.dto.ts
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateCategoryDto {
   @IsString()
@@ -11,5 +19,11 @@ export class CreateCategoryDto {
   @IsOptional()
   @MaxLength(500)
   description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  parentId?: number;
 }
 

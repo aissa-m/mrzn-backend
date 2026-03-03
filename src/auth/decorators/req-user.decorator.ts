@@ -1,6 +1,6 @@
 // src/auth/decorators/req-user.decorator.ts
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { JwtUserPayload } from './roles.guard';
+import { JwtUserPayload } from '../types';
 
 export const ReqUser = createParamDecorator(
   (data: unknown, ctx: ExecutionContext): JwtUserPayload => {

@@ -16,13 +16,13 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiOkResponse, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { QueryProductsDto } from './dto/query-products.dto';
-import type { JwtUserPayload } from '../auth/types';
+import type { JwtUserPayload } from '../auth/types/auth.types';
 
 @Controller('products')
 export class ProductsController {

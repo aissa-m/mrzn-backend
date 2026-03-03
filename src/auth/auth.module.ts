@@ -5,12 +5,29 @@ import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './jwt.strategy';
-import { OtpService } from './otp.service';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { OtpService } from './otp/otp.service';
 import { SmsModule } from '../sms/sms.module';
-import { OTP_PROVIDER } from './interfaces/otp-provider.interface';
-import { LocalOtpProvider } from './providers/local-otp.provider';
-import { TwilioOtpProvider } from './providers/twilio-otp.provider';
+import { OTP_PROVIDER } from './otp/interfaces/otp-provider.interface';
+import { LocalOtpProvider } from './otp/providers/local-otp.provider';
+import { TwilioOtpProvider } from './otp/providers/twilio-otp.provider';
+
+const TWILIO_ENV_KEYS = [
+  'TWILIO_ACCOUNT_SID',
+  'TWILIO_AUTH_TOKEN',
+  'TWILIO_VERIFY_SERVICE_SID',
+] as const;
+
+function ensureTwilioConfigForProduction(): void {
+  const missing = TWILIO_ENV_KEYS.filter(
+    (key) => (process.env[key] ?? '').trim() === '',
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `In production OTP uses Twilio. Missing required env: ${missing.join(', ')}. Set them and restart.`,
+    );
+  }
+}
 
 @Module({
   imports: [
@@ -34,7 +51,11 @@ import { TwilioOtpProvider } from './providers/twilio-otp.provider';
     {
       provide: OTP_PROVIDER,
       useFactory: (local: LocalOtpProvider, twilio: TwilioOtpProvider) => {
-        return process.env.OTP_PROVIDER === 'twilio' ? twilio : local;
+        if (process.env.NODE_ENV === 'production') {
+          ensureTwilioConfigForProduction();
+          return twilio;
+        }
+        return local;
       },
       inject: [LocalOtpProvider, TwilioOtpProvider],
     },

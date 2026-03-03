@@ -8,6 +8,7 @@ import {
   IsNumber,
   ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { AttributeType } from '@prisma/client';
 
 export class UpdateCategoryAttributeDto {
@@ -56,5 +57,11 @@ export class UpdateCategoryAttributeDto {
   @IsOptional()
   @IsNumber()
   maxValue?: number | null;
+
+  /** Atributo del que depende. Null para quitar la dependencia. */
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  dependsOnAttributeId?: number | null;
 }
 

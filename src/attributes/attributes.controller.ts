@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
@@ -14,9 +15,9 @@ import { CreateCategoryAttributeDto } from './dto/create-category-attribute.dto'
 import { UpdateCategoryAttributeDto } from './dto/update-category-attribute.dto';
 import { CreateAttributeOptionDto } from './dto/create-attribute-option.dto';
 import { SetProductAttributeValuesDto } from './dto/set-product-attribute-values.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { ProductOwnerGuard } from '../auth/guards/product-owner.guard';
 import { ApiOkResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
 
@@ -37,6 +38,36 @@ export class AttributesController {
     @Param('categoryId', ParseIntPipe) categoryId: number,
   ) {
     return this.attributesService.getCategoryAttributes(categoryId);
+  }
+
+  /**
+   * GET /attributes/:attributeId/options
+   * Lista opciones de un atributo (SELECT/MULTISELECT). Con parentOptionId devuelve solo opciones hijas (selects dependientes).
+   * Público - para formularios de creación/edición de producto.
+   */
+  @Get('attributes/:attributeId/options')
+  @ApiOperation({
+    summary: 'Obtener opciones de un atributo (opcionalmente filtradas por opción padre)',
+  })
+  @ApiOkResponse({ description: 'Lista de opciones del atributo' })
+  async getAttributeOptions(
+    @Param('attributeId', ParseIntPipe) attributeId: number,
+    @Query('parentOptionId') parentOptionId?: string,
+  ) {
+    const hasParentParam =
+      parentOptionId !== undefined && parentOptionId !== '';
+
+    if (!hasParentParam) {
+      return this.attributesService.getAttributeOptions(attributeId);
+    }
+
+    const parsedParentId = parseInt(parentOptionId, 10);
+
+    if (Number.isNaN(parsedParentId)) {
+      return this.attributesService.getAttributeOptions(attributeId);
+    }
+
+    return this.attributesService.getAttributeOptions(attributeId, parsedParentId);
   }
 
   /**

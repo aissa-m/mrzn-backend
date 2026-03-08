@@ -6,6 +6,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 import { OtpService } from './otp/otp.service';
 import { SmsModule } from '../sms/sms.module';
 import { OTP_PROVIDER } from './otp/interfaces/otp-provider.interface';
@@ -46,6 +47,7 @@ function ensureTwilioConfigForProduction(): void {
     AuthService,
     OtpService,
     JwtStrategy,
+    OptionalJwtAuthGuard,
     LocalOtpProvider,
     TwilioOtpProvider,
     {
@@ -60,6 +62,6 @@ function ensureTwilioConfigForProduction(): void {
       inject: [LocalOtpProvider, TwilioOtpProvider],
     },
   ],
-  exports: [JwtModule],
+  exports: [JwtModule, OptionalJwtAuthGuard],
 })
 export class AuthModule {}

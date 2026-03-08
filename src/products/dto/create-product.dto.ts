@@ -18,9 +18,10 @@ export class CreateProductDto {
   price!: number;
 
   @Type(() => Number)
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  storeId!: number;
+  storeId?: number;
 
   @Type(() => Number)
   @IsInt()

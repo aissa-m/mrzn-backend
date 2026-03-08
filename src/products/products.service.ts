@@ -13,6 +13,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { Prisma } from '@prisma/client';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { S3Service } from 'src/s3/s3.service';
+import type { JwtUserPayload } from '../auth/types/auth.types';
 
 type UploadResult = { url: string; key: string };
 
@@ -25,11 +26,13 @@ export class ProductsService {
   ) { }
 
   async create(
-    userId: number,
+    user: JwtUserPayload,
     dto: CreateProductDto,
     files: Express.Multer.File[],
   ) {
     try {
+      const userId = Number(user.id);
+
       // Validar que la categoría existe
       const categoryExists = await this.prisma.category.findUnique({
         where: { id: dto.categoryId },
@@ -39,15 +42,33 @@ export class ProductsService {
         throw new BadRequestException('La categoría seleccionada no existe');
       }
 
-      // 1) Crear el producto primero (sin imágenes aún)
+      // Si se envía storeId, la tienda debe pertenecer al usuario (salvo ADMIN)
+      if (dto.storeId != null && dto.storeId !== undefined) {
+        const canUseStore =
+          user.role === 'ADMIN' ||
+          (await this.ownership.isStoreOwner(userId, dto.storeId));
+        if (!canUseStore) {
+          throw new ForbiddenException(
+            'No tienes permiso para asociar el producto a esa tienda',
+          );
+        }
+      }
+
+      // 1) Crear el producto con ProductCreateInput (solo relaciones connect, sin IDs directos)
+      const createData: Record<string, unknown> = {
+        name: dto.name.trim(),
+        description: dto.description?.trim() ?? undefined,
+        price: new (Prisma as any).Decimal(String(dto.price)),
+        user: { connect: { id: userId } },
+      };
+      if (dto.categoryId != null) {
+        createData.category = { connect: { id: dto.categoryId } };
+      }
+      if (dto.storeId != null) {
+        createData.store = { connect: { id: dto.storeId } };
+      }
       const product = await this.prisma.product.create({
-        data: {
-          name: dto.name.trim(),
-          description: dto.description?.trim() || null,
-          price: new (Prisma as any).Decimal(String(dto.price)),
-          storeId: Number(dto.storeId),
-          categoryId: dto.categoryId,
-        },
+        data: createData as Prisma.ProductCreateInput,
       });
 
       // 2) Subir imágenes (si hay)
@@ -174,31 +195,49 @@ export class ProductsService {
   }
 
   async update(
-    userId: number,
+    user: JwtUserPayload,
     id: number,
     dto: UpdateProductDto,
     files: Express.Multer.File[] = [],
   ) {
-    // console.log('PATCH body dto:', dto, 'files:', files?.length);
+    const userId = Number(user.id);
 
-    // 1) Comprobar que el producto existe y que es del owner
+    // 1) Producto debe existir; solo puede editarlo el dueño (product.userId) o un ADMIN
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { images: true },
+      include: {
+        images: true,
+        user: { select: { id: true } },
+      } as Prisma.ProductInclude,
     });
 
     if (!product) {
       throw new NotFoundException('Product not found');
     }
 
-    const owns = await this.ownership.isStoreOwner(userId, product.storeId);
-    if (!owns) throw new ForbiddenException('Not the store owner');
+    const productWithUser = product as typeof product & { user: { id: number } };
+    const isOwnerOrAdmin =
+      productWithUser.user.id === userId || user.role === 'ADMIN';
+    if (!isOwnerOrAdmin) {
+      throw new ForbiddenException(
+        'Solo el propietario del producto o un administrador pueden modificarlo',
+      );
+    }
+
+    // Si se cambia storeId, validar que la tienda pertenezca al usuario (salvo ADMIN)
+    if (dto.storeId !== undefined && dto.storeId !== null) {
+      const canUseStore =
+        user.role === 'ADMIN' ||
+        (await this.ownership.isStoreOwner(userId, dto.storeId));
+      if (!canUseStore) {
+        throw new ForbiddenException(
+          'No tienes permiso para asociar el producto a esa tienda',
+        );
+      }
+    }
 
     // 2) Validar categoría si se proporciona
-    // Manejar categoryIds (array) tomando el primer elemento, o categoryId (singular) si existe
-    const categoryIdToUse = (dto as any).categoryId !== undefined 
-      ? (dto as any).categoryId 
-      : (dto.categoryIds && dto.categoryIds.length > 0 ? dto.categoryIds[0] : undefined);
+    const categoryIdToUse = dto.categoryId;
 
     if (categoryIdToUse !== undefined && categoryIdToUse !== null) {
       const categoryExists = await this.prisma.category.findUnique({
@@ -210,7 +249,7 @@ export class ProductsService {
     }
 
     // 3) Preparar datos básicos a actualizar
-    const data: any = {};
+    const data: Prisma.ProductUncheckedUpdateInput = {};
 
     if (dto.name !== undefined) {
       data.name = dto.name;
@@ -227,6 +266,11 @@ export class ProductsService {
     // Actualizar categoría si se proporciona
     if (categoryIdToUse !== undefined) {
       data.categoryId = categoryIdToUse || null;
+    }
+
+    // Actualizar storeId si se proporciona (validación de tienda ya hecha arriba)
+    if (dto.storeId !== undefined) {
+      data.storeId = dto.storeId ?? undefined;
     }
 
     // 4) Aplicar update de datos básicos
@@ -313,13 +357,54 @@ export class ProductsService {
     };
   }
 
-  async remove(userId: number, id: number) {
-    const product = await this.findOne(id);
-    const owns = await this.ownership.isStoreOwner(userId, product.storeId);
-    if (!owns) throw new ForbiddenException('Not the store owner');
-
+  async remove(user: JwtUserPayload, id: number) {
+    const userId = Number(user.id);
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, user: { select: { id: true } } } as Prisma.ProductSelect,
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    const productWithUser = product as unknown as { id: number; user: { id: number } };
+    const isOwnerOrAdmin =
+      productWithUser.user.id === userId || user.role === 'ADMIN';
+    if (!isOwnerOrAdmin) {
+      throw new ForbiddenException(
+        'Solo el propietario del producto o un administrador pueden eliminarlo',
+      );
+    }
     await this.prisma.product.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async getRelatedProducts(
+    categoryId: number,
+    exclude?: number,
+    limit: number = 8,
+  ) {
+    const take = Math.min(Math.max(limit, 1), 20);
+    const where: Prisma.ProductWhereInput = {
+      categoryId,
+      ...(exclude != null ? { id: { not: exclude } } : {}),
+    };
+
+    const products = await this.prisma.product.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: {
+        images: { take: 1 },
+      },
+    });
+
+    return products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: (p.price as any).toNumber?.() ?? Number(p.price),
+      coverImage: p.images[0]?.url ?? null,
+      createdAt: p.createdAt,
+    }));
   }
 
   async findManyWithQuery(q: QueryProductsDto) {

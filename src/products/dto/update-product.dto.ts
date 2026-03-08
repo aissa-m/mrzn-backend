@@ -25,9 +25,15 @@ export class UpdateProductDto {
   images?: any; // no lo usamos, los archivos vienen en @UploadedFiles()
 
   @IsOptional()
-  @IsArray()
   @Type(() => Number)
-  @IsInt({ each: true })
-  @IsPositive({ each: true })
-  categoryIds?: number[];
+  @IsInt()
+  @IsPositive()
+  categoryId?: number;
+
+  /** Tienda a asociar. Si se envía, debe pertenecer al usuario (salvo ADMIN). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  storeId?: number;
 }

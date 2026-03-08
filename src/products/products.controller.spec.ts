@@ -46,6 +46,7 @@ describe('ProductsController', () => {
         name: 'Test Product',
         price: 10.5,
         storeId: 1,
+        categoryId: 1,
       };
       const files = [] as Express.Multer.File[];
       productsService.create.mockResolvedValue(mockProduct as any);
@@ -53,7 +54,7 @@ describe('ProductsController', () => {
       const result = await controller.create(mockUser, createDto, files);
 
       expect(productsService.create).toHaveBeenCalledWith(
-        mockUser.id,
+        mockUser,
         createDto,
         files,
       );
@@ -81,7 +82,7 @@ describe('ProductsController', () => {
       const result = await controller.update(mockUser, '1', updateDto, []);
 
       expect(productsService.update).toHaveBeenCalledWith(
-        mockUser.id,
+        mockUser,
         1,
         updateDto,
         [],
@@ -96,7 +97,7 @@ describe('ProductsController', () => {
 
       const result = await controller.remove(mockUser, '1');
 
-      expect(productsService.remove).toHaveBeenCalledWith(mockUser.id, 1);
+      expect(productsService.remove).toHaveBeenCalledWith(mockUser, 1);
       expect(result).toEqual({ ok: true });
     });
   });

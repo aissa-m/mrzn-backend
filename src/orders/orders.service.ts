@@ -38,6 +38,11 @@ export class OrdersService {
 
     // Reglas tipo Wallapop: todos los items de la misma tienda
     const storeId = products[0].storeId;
+    if (storeId == null) {
+      throw new BadRequestException(
+        'Los productos deben pertenecer a una tienda para crear el pedido.',
+      );
+    }
     if (!products.every((p) => p.storeId === storeId)) {
       throw new BadRequestException(
         'Todos los productos deben pertenecer a la misma tienda.',

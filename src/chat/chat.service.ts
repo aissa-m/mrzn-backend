@@ -32,35 +32,78 @@ export class ChatService {
     private readonly chatGateway: ChatGateway,
   ) {}
 
-  /** Crear/abrir conversación 1:1 (si existe, la reutiliza) */
+  /**
+   * Crear/abrir conversación 1:1 (si existe, la reutiliza).
+   * Modelo unificado MRZN:
+   * - Si se envía productId: el vendedor real es Product.userId; storeId es opcional (Product.storeId).
+   * - Si no hay productId: flujo legacy; otherUserId es el otro participante y storeId/orderId opcionales.
+   * Unicidad: una sola conversación por (buyerUserId, sellerUserId, productId).
+   */
   async openConversation(user: JwtUserPayload, dto: CreateConversationDto) {
-    if (dto.otherUserId === user.id) {
-      throw new BadRequestException('Cannot open a conversation with yourself');
+    let buyerUserId = user.id;
+    let sellerUserId: number;
+    let storeId: number | null;
+    let orderId: number | null = dto.orderId ?? null;
+    let productId: number | null = dto.productId ?? null;
+
+    if (dto.productId != null) {
+      // Flujo por producto: vendedor = Product.userId, storeId opcional
+      const product = await this.prisma.product.findUnique({
+        where: { id: dto.productId },
+        select: { id: true, userId: true, storeId: true },
+      });
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+      sellerUserId = product.userId;
+      storeId = product.storeId ?? null;
+      if (buyerUserId === sellerUserId) {
+        throw new BadRequestException('Cannot open a conversation with yourself');
+      }
+      if (dto.otherUserId != null && dto.otherUserId !== sellerUserId) {
+        throw new BadRequestException(
+          'otherUserId must match the product seller (Product.userId) when opening by product',
+        );
+      }
+    } else {
+      // Flujo legacy: otherUserId obligatorio, storeId/orderId opcionales
+      if (dto.otherUserId == null) {
+        throw new BadRequestException('otherUserId is required when not opening by productId');
+      }
+      sellerUserId = dto.otherUserId;
+      storeId = dto.storeId ?? null;
+      if (buyerUserId === sellerUserId) {
+        throw new BadRequestException('Cannot open a conversation with yourself');
+      }
     }
 
-    // ¿ya existe con ese contexto?
+    // Evitar duplicados: misma pareja (buyer, seller) y mismo productId (o mismo storeId/orderId en legacy)
+    const whereExisting = {
+      AND: [
+        { participants: { some: { userId: buyerUserId } } },
+        { participants: { some: { userId: sellerUserId } } },
+      ],
+      ...(productId != null
+        ? { productId }
+        : { productId: null as null, storeId: storeId ?? null, orderId: orderId ?? null }),
+    };
+
     const existing = await this.prisma.conversation.findFirst({
-      where: {
-        participants: { every: { userId: { in: [user.id, dto.otherUserId] } } },
-        storeId: dto.storeId ?? undefined,
-        orderId: dto.orderId ?? undefined,
-        productId: dto.productId ?? null,
-      },
+      where: whereExisting,
       include: { participants: true },
     });
 
     if (existing) return existing;
 
-    // crear con ambos participantes
     return this.prisma.conversation.create({
       data: {
-        storeId: dto.storeId,
-        orderId: dto.orderId,
-        productId: dto.productId ?? null,
+        storeId: storeId ?? undefined,
+        orderId: orderId ?? undefined,
+        productId,
         participants: {
           create: [
-            { userId: user.id, role: 'BUYER', lastReadAt: new Date() },
-            { userId: dto.otherUserId, role: 'SELLER' },
+            { userId: buyerUserId, role: 'BUYER', lastReadAt: new Date() },
+            { userId: sellerUserId, role: 'SELLER' },
           ],
         },
       },

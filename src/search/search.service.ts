@@ -8,8 +8,22 @@ import type {
   SearchResultsResponseDto,
   SearchResultStoreDto,
 } from './dto/search-results-response.dto';
+import { getGenericSuggestionsForLang } from './constants/generic-suggestions';
 
 const CURSOR_SEP = '_';
+const SUGGESTIONS_MAX_LIMIT = 10;
+
+function normalizeForMatch(s: string): string {
+  return (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function relevanceScore(value: string, normalizedTerm: string): number {
+  const n = value.trim().toLowerCase();
+  if (normalizedTerm.length === 0) return 0;
+  if (n.startsWith(normalizedTerm)) return 2;
+  if (n.includes(normalizedTerm)) return 1;
+  return 0;
+}
 
 /** Resultado de getFeatured findMany (con images) */
 type FeaturedRow = {
@@ -32,6 +46,14 @@ type ResultRow = {
   category: { name: string } | null;
   store: { id: number; name: string; logoImageUrl: string | null } | null;
   images: { url: string }[];
+};
+
+/** Fila de producto para suggestions (name, category, store) */
+type SuggestionProductRow = {
+  id: number;
+  name: string;
+  category: { name: string } | null;
+  store: { name: string } | null;
 };
 
 function parseCursor(cursor: string): { createdAt: Date; id: number } | null {
@@ -77,46 +99,133 @@ export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Sugerencias ligeras: productos y categorías por coincidencia parcial en nombre.
-   * Default limit 5, máximo 10.
+   * Sugerencias híbridas: primero productos (nombre, categoría, tienda), luego genéricas por idioma.
+   * Coincidencia por prefijo y parcial, normalizada (case-insensitive, espacios colapsados).
+   * Si no hay suficientes resultados reales, completa con sugerencias genéricas (en/fr/ar).
    */
   async getSuggestions(
     q: string | undefined,
-    limit: number = 5,
+    limit: number = 8,
+    lang: string = 'en',
   ): Promise<SearchSuggestionDto[]> {
-    const term = (q ?? '').trim();
-    const take = Math.min(Math.max(1, limit), 10);
-    if (term.length === 0) return [];
+    const rawTerm = (q ?? '').trim();
+    const normalizedTerm = normalizeForMatch(rawTerm);
+    const take = Math.min(Math.max(1, limit), SUGGESTIONS_MAX_LIMIT);
 
-    const [products, categories] = await Promise.all([
-      this.prisma.product.findMany({
-        where: { name: { contains: term, mode: 'insensitive' } },
-        take: take,
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.category.findMany({
-        where: { name: { contains: term, mode: 'insensitive' } },
-        take: take,
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      }),
-    ]);
+    if (rawTerm.length === 0) return [];
 
-    const byLabel = new Map<string, SearchSuggestionDto>();
-    for (const c of categories) {
-      const key = `category:${c.name.toLowerCase()}`;
-      if (!byLabel.has(key))
-        byLabel.set(key, { type: 'category', label: c.name, id: c.id });
+    const seen = new Set<string>();
+    const suggestions: SearchSuggestionDto[] = [];
+
+    if (rawTerm.length > 0) {
+      const where: Prisma.ProductWhereInput = {
+        OR: [
+          { name: { contains: rawTerm, mode: 'insensitive' } },
+          { category: { name: { contains: rawTerm, mode: 'insensitive' } } },
+          { store: { name: { contains: rawTerm, mode: 'insensitive' } } },
+        ],
+      };
+
+      const rows = await this.prisma.product.findMany({
+        where,
+        take: take * 3,
+        select: {
+          id: true,
+          name: true,
+          category: { select: { name: true } },
+          store: { select: { name: true } },
+        },
+      }) as SuggestionProductRow[];
+
+      const withScore: { dto: SearchSuggestionDto; score: number }[] = [];
+      for (const p of rows) {
+        if (p.name?.trim()) {
+          const score = relevanceScore(p.name, normalizedTerm);
+          if (score > 0) {
+            const key = p.name.trim().toLowerCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              withScore.push({
+                dto: {
+                  value: p.name.trim(),
+                  source: 'product',
+                  kind: 'product_name',
+                  id: p.id,
+                },
+                score,
+              });
+            }
+          }
+        }
+        if (p.category?.name?.trim()) {
+          const name = p.category.name.trim();
+          const score = relevanceScore(name, normalizedTerm);
+          if (score > 0) {
+            const key = `category:${name.toLowerCase()}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              withScore.push({
+                dto: {
+                  value: name,
+                  source: 'product',
+                  kind: 'category',
+                  id: p.id,
+                },
+                score,
+              });
+            }
+          }
+        }
+        if (p.store?.name?.trim()) {
+          const name = p.store.name.trim();
+          const score = relevanceScore(name, normalizedTerm);
+          if (score > 0) {
+            const key = `store:${name.toLowerCase()}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              withScore.push({
+                dto: {
+                  value: name,
+                  source: 'product',
+                  kind: 'store',
+                  id: p.id,
+                },
+                score,
+              });
+            }
+          }
+        }
+      }
+
+      withScore.sort((a, b) => b.score - a.score);
+      for (const { dto } of withScore) {
+        suggestions.push(dto);
+        if (suggestions.length >= take) break;
+      }
     }
-    for (const p of products) {
-      const key = `product:${p.name.toLowerCase()}`;
-      if (!byLabel.has(key))
-        byLabel.set(key, { type: 'product', label: p.name, id: p.id });
+
+    if (suggestions.length < take) {
+      const generic = getGenericSuggestionsForLang(lang);
+      for (const word of generic) {
+        if (suggestions.length >= take) break;
+        const wordNorm = word.trim().toLowerCase();
+        if (seen.has(wordNorm)) continue;
+        const matches =
+          normalizedTerm.length === 0 ||
+          wordNorm.includes(normalizedTerm) ||
+          wordNorm.startsWith(normalizedTerm);
+        if (matches) {
+          seen.add(wordNorm);
+          suggestions.push({
+            value: word.trim(),
+            source: 'generic',
+            kind: 'keyword',
+          });
+        }
+      }
     }
 
-    const combined = [...byLabel.values()];
-    return combined.slice(0, take);
+    return suggestions.slice(0, take);
   }
 
   /**

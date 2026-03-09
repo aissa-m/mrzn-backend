@@ -26,15 +26,17 @@ export class SearchController {
 
   @Get('suggestions')
   @ApiOkResponse({
-    description: 'Sugerencias ligeras (productos y categorías) por coincidencia parcial en nombre',
+    description: 'Sugerencias de autocomplete: productos/categoría/tienda + fallback genérico por idioma',
   })
   @ApiQuery({ name: 'q', required: false, type: String, description: 'Texto de búsqueda' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 5, description: 'Máximo de sugerencias (1-10, default 5)' })
+  @ApiQuery({ name: 'lang', required: false, enum: ['en', 'fr', 'ar'], description: 'Idioma para sugerencias genéricas' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 8, description: 'Máximo de sugerencias (1-10, default 8)' })
   getSuggestions(
     @Query() query: QuerySearchSuggestionsDto,
   ): Promise<SearchSuggestionDto[]> {
-    const limit = query.limit ?? 5;
-    return this.searchService.getSuggestions(query.q, limit);
+    const limit = query.limit ?? 8;
+    const lang = query.lang ?? 'en';
+    return this.searchService.getSuggestions(query.q, limit, lang);
   }
 
   @Get('featured')

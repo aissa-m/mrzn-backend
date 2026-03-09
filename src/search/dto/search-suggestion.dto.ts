@@ -1,18 +1,22 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export type SearchSuggestionType = 'product' | 'category';
+export type SearchSuggestionSource = 'product' | 'generic';
+
+export type SearchSuggestionKind = 'product_name' | 'category' | 'store' | 'keyword';
 
 /**
- * Una sugerencia de búsqueda (producto o categoría).
- * Incluye id opcional para enlazar en frontend.
+ * Una sugerencia de búsqueda: producto/categoría/tienda real o término genérico por idioma.
  */
 export class SearchSuggestionDto {
-  @ApiProperty({ enum: ['product', 'category'] })
-  type: SearchSuggestionType;
+  @ApiProperty({ example: 'Toyota Prado 2015' })
+  value: string;
 
-  @ApiProperty({ example: 'Zapatillas running' })
-  label: string;
+  @ApiProperty({ enum: ['product', 'generic'] })
+  source: SearchSuggestionSource;
 
-  @ApiProperty({ required: false, example: 42 })
+  @ApiPropertyOptional({ enum: ['product_name', 'category', 'store', 'keyword'] })
+  kind?: SearchSuggestionKind;
+
+  @ApiPropertyOptional({ description: 'Id del producto o categoría cuando source es product' })
   id?: number;
 }

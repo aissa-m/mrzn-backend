@@ -19,9 +19,10 @@ export class OwnershipService {
     if (user.role === 'ADMIN') return true;
     return this.isStoreOwner(user.id, storeId);
   }
+  /** Ownership real por Product.userId (marketplace unificado). */
   async isProductOwner(userId: number, productId: number): Promise<boolean> {
     const count = await this.prisma.product.count({
-      where: { id: productId, store: { ownerId: userId } },
+      where: { id: productId, userId },
     });
     return count > 0;
   }

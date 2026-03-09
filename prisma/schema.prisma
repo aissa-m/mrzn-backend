@@ -120,6 +120,9 @@ model User {
   // tiendas del usuario
   stores Store[]
 
+  // productos que vende (marketplace unificado; store opcional)
+  products Product[]
+
   // suscripción actual (1-1)
   subscription Subscription?
 
@@ -253,8 +256,13 @@ model Product {
   description String?
   price       Decimal @db.Decimal(10, 2)
 
-  storeId Int
-  store   Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// Vendedor del producto (obligatorio). Permite venta sin tienda (marketplace unificado).
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Tienda asociada (opcional). Si existe, el producto aparece también en la tienda.
+  storeId Int?
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
 
   /// 👇 CAMBIO IMPORTANTE: UNA SOLA CATEGORÍA
   categoryId Int?
@@ -274,7 +282,9 @@ model Product {
 
   @@unique([storeId, name])
   @@index([storeId])
+  @@index([userId])
   @@index([categoryId])
+  @@index([createdAt, id])
 }
 
 model Category {

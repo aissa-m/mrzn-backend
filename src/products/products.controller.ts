@@ -17,20 +17,19 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { RolesGuard } from '../auth/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiOkResponse, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { QueryRelatedProductsDto } from './dto/query-related-products.dto';
+import { RelatedProductItemDto } from './dto/related-product-item.dto';
 import type { JwtUserPayload } from '../auth/types/auth.types';
 
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  // Crear producto (dueño de la tienda o admin) con imágenes
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('STORE_OWNER', 'ADMIN')
+  // Crear producto: cualquier usuario autenticado; ownership por product.userId; storeId opcional
+  @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
     FilesInterceptor('images', 6, {
@@ -59,7 +58,7 @@ export class ProductsController {
         name: { type: 'string', example: 'Café molido' },
         description: { type: 'string', example: 'Paquete 250g' },
         price: { type: 'number', example: 3.5 },
-        storeId: { type: 'number', example: 1 },
+        storeId: { type: 'number', example: 1, description: 'Opcional; si se envía debe ser tienda del usuario' },
         categoryIds: {
           type: 'array',
           items: { type: 'number' },
@@ -70,7 +69,7 @@ export class ProductsController {
           items: { type: 'string', format: 'binary' },
         },
       },
-      required: ['name', 'price', 'storeId'],
+      required: ['name', 'price'],
     },
   })
   async create(
@@ -78,9 +77,7 @@ export class ProductsController {
     @Body() dto: CreateProductDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    // console.log('CREATE PRODUCT - files length:', files?.length ?? 0);
-    const userId = Number(user.id);
-    return this.productsService.create(userId, dto, files ?? []);
+    return this.productsService.create(user, dto, files ?? []);
   }
 
   @Get('by-store')
@@ -89,13 +86,26 @@ export class ProductsController {
     return this.productsService.findAllByStore(Number(storeId));
   }
 
+  @Get('related')
+  @ApiOkResponse({
+    description: 'Productos de la misma categoría para tarjetas (ligero)',
+    type: [RelatedProductItemDto],
+  })
+  @ApiQuery({ name: 'categoryId', required: true, type: Number, example: 1 })
+  @ApiQuery({ name: 'exclude', required: false, type: Number, description: 'ID del producto a excluir (ej. el actual)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 8, description: 'Máximo 20, default 8' })
+  getRelated(@Query() q: QueryRelatedProductsDto) {
+    const limit = q.limit ?? 8;
+    return this.productsService.getRelatedProducts(q.categoryId, q.exclude, limit);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(Number(id));
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('STORE_OWNER', 'ADMIN')
+  // Solo el propietario (product.userId) o un ADMIN pueden actualizar
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   @UseInterceptors(
     FilesInterceptor('images', 6, {
@@ -143,19 +153,19 @@ export class ProductsController {
     },
   })
   update(
-    @CurrentUser() user: any,
+    @CurrentUser() user: JwtUserPayload,
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.productsService.update(user.id, Number(id), dto, files);
+    return this.productsService.update(user, Number(id), dto, files);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('STORE_OWNER', 'ADMIN')
+  // Solo el propietario (product.userId) o un ADMIN pueden eliminar
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.productsService.remove(user.id, Number(id));
+  remove(@CurrentUser() user: JwtUserPayload, @Param('id') id: string) {
+    return this.productsService.remove(user, Number(id));
   }
 
   @Get()

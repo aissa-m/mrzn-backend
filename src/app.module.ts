@@ -20,6 +20,8 @@ import { MoosylModule } from './payments/moosyl/moosyl.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { CartModule } from './cart/cart.module';
 import { AdminModule } from './admin/admin.module';
+import { FeedModule } from './feed/feed.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { AdminModule } from './admin/admin.module';
     UsersModule,
     StoresModule,
     ProductsModule,
+    FeedModule,
+    SearchModule,
     OrdersModule,
     ChatModule,
     FavoritesModule,

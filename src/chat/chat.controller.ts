@@ -13,6 +13,7 @@ import {
   BadRequestException,
   Delete,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -20,6 +21,7 @@ import type { JwtUserPayload } from '../auth/types/auth.types';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { CursorDto, PageDto } from './dto/pagination.dto';
+import { SupportConversationDto } from './dto/support-conversation.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -75,12 +77,30 @@ function attachmentFileFilter(_req: any, file: Express.Multer.File, cb: any) {
   cb(null, true);
 }
 
+@ApiTags('chat')
 @UseGuards(JwtAuthGuard)
 @Controller('chat')
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
+  @Post('support')
+  @ApiBearerAuth('bearer')
+  @ApiOperation({
+    summary: 'Contact support',
+    description:
+      'Returns the support conversation for the current user. If none exists, creates one with the first available ADMIN user. One support conversation per user. Response is compatible with opening the conversation in the chat UI (conversationId, participants, lastMessage, unread).',
+  })
+  @ApiResponse({ status: 200, description: 'Support conversation (existing or newly created).' })
+  @ApiResponse({ status: 503, description: 'No support agent (ADMIN user) available.' })
+  getOrCreateSupport(
+    @CurrentUser() user: JwtUserPayload,
+    @Body() body: SupportConversationDto,
+  ) {
+    return this.chat.getOrCreateSupportConversation(user, body?.lang);
+  }
+
   @Post('conversations')
+  @ApiBearerAuth('bearer')
   open(
     @CurrentUser() user: JwtUserPayload,
     @Body() dto: CreateConversationDto,

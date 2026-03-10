@@ -16,7 +16,10 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SetProductActiveDto } from './dto/set-product-active.dto';
+import { SetProductStatusDto } from './dto/set-product-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiOkResponse, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { QueryProductsDto } from './dto/query-products.dto';
@@ -100,8 +103,71 @@ export class ProductsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(Number(id));
+  @UseGuards(OptionalJwtAuthGuard)
+  findOne(
+    @CurrentUser() user: JwtUserPayload | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.productsService.findOne(Number(id), user);
+  }
+
+  // Solo el propietario o ADMIN pueden cambiar visibilidad (isActive)
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/active')
+  @ApiBody({
+    type: SetProductActiveDto,
+    description: 'active: true = visible en marketplace, false = pausado',
+  })
+  @ApiOkResponse({
+    description: 'Visibilidad del producto actualizada (isActive)',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        name: { type: 'string' },
+        isActive: { type: 'boolean' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  setActive(
+    @CurrentUser() user: JwtUserPayload,
+    @Param('id') id: string,
+    @Body() dto: SetProductActiveDto,
+  ) {
+    return this.productsService.setActive(user, Number(id), dto.active);
+  }
+
+  // Solo el propietario o ADMIN pueden cambiar el estado (status)
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/status')
+  @ApiBody({
+    type: SetProductStatusDto,
+    description:
+      "Estado del producto en el marketplace. ACTIVE = visible y disponible, RESERVED = visible pero reservado temporalmente, SOLD = vendido, PAUSED = oculto/pausado.",
+  })
+  @ApiOkResponse({
+    description: 'Estado del producto actualizado (status + isActive coherente)',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        name: { type: 'string' },
+        status: {
+          type: 'string',
+          enum: ['ACTIVE', 'RESERVED', 'SOLD', 'PAUSED'],
+        },
+        isActive: { type: 'boolean' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  setStatus(
+    @CurrentUser() user: JwtUserPayload,
+    @Param('id') id: string,
+    @Body() dto: SetProductStatusDto,
+  ) {
+    return this.productsService.setStatus(user, Number(id), dto.status);
   }
 
   // Solo el propietario (product.userId) o un ADMIN pueden actualizar

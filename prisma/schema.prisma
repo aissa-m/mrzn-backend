@@ -31,6 +31,13 @@ enum StoreStatus {
   CLOSED
 }
 
+enum ProductStatus {
+  ACTIVE
+  RESERVED
+  SOLD
+  PAUSED
+}
+
 enum Role {
   USER
   STORE_OWNER
@@ -134,6 +141,8 @@ model User {
 
   // participación en conversaciones (tabla puente)
   conversationParticipants ConversationParticipant[]
+  /// Conversación de soporte del usuario (una por usuario; solo si abrió "Contact support")
+  supportConversation       Conversation?       @relation("SupportConversation")
   // 🔔 notificaciones recibidas
   notifications            Notification[]
   avatarUrl                String?
@@ -256,6 +265,16 @@ model Product {
   description String?
   price       Decimal @db.Decimal(10, 2)
 
+  /// Visibilidad en marketplace: false = pausado/oculto (solo visible para el propietario).
+  isActive Boolean @default(true)
+
+  /// Estado del producto en el marketplace.
+  /// ACTIVE   = visible y disponible
+  /// RESERVED = visible pero reservado temporalmente (sin acciones de compra inmediatas)
+  /// SOLD     = vendido (oculto en listados públicos, visible solo para dueño/admin)
+  /// PAUSED   = pausado/oculto (solo visible para el propietario)
+  status ProductStatus @default(ACTIVE)
+
   /// Vendedor del producto (obligatorio). Permite venta sin tienda (marketplace unificado).
   userId Int
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -342,11 +361,18 @@ model OrderItem {
 /**
  * === Chat estilo Wallapop ===
  * Conversación por producto/tienda/pedido entre usuarios.
+ * Si isSupport = true: conversación interna con soporte/admin (una por usuario, supportUserId = cliente).
  */
 model Conversation {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// true = conversación de "Contact support" (usuario + admin)
+  isSupport Boolean @default(false)
+  /// Usuario que abrió la conversación de soporte (cliente). Unicidad evita duplicados.
+  supportUserId Int?  @unique
+  supportUser   User? @relation("SupportConversation", fields: [supportUserId], references: [id], onDelete: SetNull)
 
   // contexto opcional
   storeId   Int?
@@ -369,6 +395,7 @@ model Conversation {
   @@index([orderId])
   @@index([productId])
   @@index([lastMessageAt])
+  @@index([isSupport, supportUserId])
 }
 
 model Message {

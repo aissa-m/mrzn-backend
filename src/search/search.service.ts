@@ -33,6 +33,7 @@ type FeaturedRow = {
   createdAt: Date;
   categoryId: number | null;
   images: { url: string }[];
+  status?: string;
 };
 
 /** Resultado de getResults findMany (con images, category, store) */
@@ -46,6 +47,7 @@ type ResultRow = {
   category: { name: string } | null;
   store: { id: number; name: string; logoImageUrl: string | null } | null;
   images: { url: string }[];
+  status?: string;
 };
 
 /** Fila de producto para suggestions (name, category, store) */
@@ -81,6 +83,11 @@ function productSearchWhere(
   const term = (q ?? '').trim();
   if (term.length === 0) return undefined;
   const and: Prisma.ProductWhereInput[] = [
+    {
+      status: {
+        in: ['ACTIVE', 'RESERVED'],
+      },
+    } as any,
     {
       OR: [
         { name: { contains: term, mode: 'insensitive' } },
@@ -119,6 +126,9 @@ export class SearchService {
 
     if (rawTerm.length > 0) {
       const where: Prisma.ProductWhereInput = {
+        status: {
+          in: ['ACTIVE', 'RESERVED'],
+        },
         OR: [
           { name: { contains: rawTerm, mode: 'insensitive' } },
           { category: { name: { contains: rawTerm, mode: 'insensitive' } } },
@@ -242,7 +252,7 @@ export class SearchService {
     const where = productSearchWhere(term, excludeUserId);
     if (!where) return [];
 
-    const rows = await this.prisma.product.findMany({
+    const rows = (await this.prisma.product.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: Math.min(take * 2, 20),
@@ -252,13 +262,14 @@ export class SearchService {
         price: true,
         createdAt: true,
         categoryId: true,
+        status: true,
         images: {
           orderBy: { createdAt: 'asc' },
           take: 1,
           select: { url: true },
         },
-      },
-    }) as FeaturedRow[];
+      } as any,
+    })) as unknown as FeaturedRow[];
 
     const nameLower = term.toLowerCase();
     const sorted = [...rows].sort((a, b) => {
@@ -275,6 +286,7 @@ export class SearchService {
       coverImage: p.images[0]?.url ?? null,
       createdAt: p.createdAt.toISOString(),
       categoryId: p.categoryId ?? null,
+      status: (p as any).status ?? 'ACTIVE',
     }));
   }
 
@@ -309,7 +321,7 @@ export class SearchService {
     const fullWhere: Prisma.ProductWhereInput =
       andConditions.length > 1 ? { AND: andConditions } : where;
 
-    const rows = await this.prisma.product.findMany({
+    const rows = (await this.prisma.product.findMany({
       where: fullWhere,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take,
@@ -333,8 +345,9 @@ export class SearchService {
           take: 1,
           select: { url: true },
         },
-      },
-    }) as ResultRow[];
+        status: true,
+      } as any,
+    })) as unknown as ResultRow[];
 
     const hasMore = rows.length > pageSize;
     const items = hasMore ? rows.slice(0, pageSize) : rows;
@@ -349,6 +362,7 @@ export class SearchService {
         categoryId: p.categoryId ?? null,
         categoryName: p.category?.name ?? null,
         userId: p.userId,
+        status: (p as any).status ?? 'ACTIVE',
       };
       if (p.store) {
         const storeDto: SearchResultStoreDto = {

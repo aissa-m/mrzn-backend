@@ -13,6 +13,12 @@ export class FeedSectionProductItemDto {
   price: number;
   @ApiProperty({ nullable: true, description: 'Primera imagen del producto' })
   coverImage: string | null;
+  @ApiProperty({
+    enum: ['ACTIVE', 'RESERVED', 'SOLD', 'PAUSED'],
+    description:
+      'Estado del producto en el marketplace. ACTIVE = visible y disponible, RESERVED = visible pero reservado, SOLD = vendido (oculto en listados públicos), PAUSED = pausado/oculto.',
+  })
+  status: 'ACTIVE' | 'RESERVED' | 'SOLD' | 'PAUSED';
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { JwtUserPayload } from '../auth/types';
 import { CursorDto, PageDto } from './dto/pagination.dto';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { ChatGateway } from './chat.gateway';
+import { getSupportWelcomeMessageForLang } from './constants/support-welcome-messages';
 
 function parseCursor(cursor?: string) {
   if (!cursor) return null;
@@ -397,6 +399,120 @@ export class ChatService {
     });
 
     return { ok: true };
+  }
+
+  /**
+   * Obtener o crear la conversación de soporte del usuario autenticado.
+   * Estrategia: un admin por conversación (primer usuario con rol ADMIN en BD).
+   * Unicidad: una sola conversación de soporte por usuario (supportUserId único).
+   * Respuesta compatible con el frontend de chat (conversationId + datos para abrir la conversación).
+   * El mensaje de bienvenida solo se crea cuando la conversación es nueva.
+   */
+  async getOrCreateSupportConversation(
+    user: JwtUserPayload,
+    lang?: string,
+  ) {
+    const existing = await this.prisma.conversation.findUnique({
+      where: { supportUserId: user.id },
+      include: this.supportConversationInclude(),
+    });
+    if (existing) return this.enrichWithUnread(existing, user.id);
+
+    const admin = await this.prisma.user.findFirst({
+      where: { role: 'ADMIN' },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    if (!admin) {
+      throw new ServiceUnavailableException(
+        'No support agent available. Please try again later.',
+      );
+    }
+
+    try {
+      const created = await this.prisma.conversation.create({
+        data: {
+          isSupport: true,
+          supportUserId: user.id,
+          participants: {
+            create: [
+              { userId: user.id, role: 'USER', lastReadAt: new Date() },
+              { userId: admin.id, role: 'SUPPORT' },
+            ],
+          },
+        },
+      });
+
+      const welcomeMessage = await this.prisma.message.create({
+        data: {
+          conversationId: created.id,
+          senderId: admin.id,
+          type: 'SYSTEM',
+          content: getSupportWelcomeMessageForLang(lang),
+        },
+      });
+
+      await this.prisma.conversation.update({
+        where: { id: created.id },
+        data: {
+          lastMessageAt: welcomeMessage.createdAt,
+          lastMessageId: welcomeMessage.id,
+        },
+      });
+
+      await this.prisma.conversationParticipant.update({
+        where: {
+          conversationId_userId: {
+            conversationId: created.id,
+            userId: user.id,
+          },
+        },
+        data: {
+          lastReadAt: welcomeMessage.createdAt,
+        },
+      });
+
+      const createdWithRelations = await this.prisma.conversation.findUnique({
+        where: { id: created.id },
+        include: this.supportConversationInclude(),
+      });
+
+      return this.enrichWithUnread(createdWithRelations, user.id);
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const again = await this.prisma.conversation.findUnique({
+          where: { supportUserId: user.id },
+          include: this.supportConversationInclude(),
+        });
+        if (again) return this.enrichWithUnread(again, user.id);
+      }
+      throw e;
+    }
+  }
+
+  private supportConversationInclude() {
+    return {
+      participants: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      },
+      lastMessage: true,
+      product: { select: { id: true, name: true } },
+    } as const;
+  }
+
+  private async enrichWithUnread(conversation: any, userId: number) {
+    const me = conversation.participants.find((p: any) => p.userId === userId);
+    const lastReadAt = me?.lastReadAt ?? new Date(0);
+    const unread = await this.prisma.message.count({
+      where: {
+        conversationId: conversation.id,
+        createdAt: { gt: lastReadAt },
+        NOT: { senderId: userId },
+      },
+    });
+    return { ...conversation, unread };
   }
 
   async listConversationsByStore(

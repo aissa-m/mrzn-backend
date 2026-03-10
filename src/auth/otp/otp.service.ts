@@ -20,7 +20,10 @@ export class OtpService {
     @Inject(OTP_PROVIDER) private readonly provider: IOtpProvider,
   ) {}
 
-  async requestOtp(phone: string, desiredRole: 'USER' | 'STORE_OWNER'): Promise<{
+  async requestOtp(
+    phone: string,
+    _desiredRole?: 'USER' | 'STORE_OWNER',
+  ): Promise<{
     success: boolean;
     devOtp?: string;
   }> {
@@ -29,13 +32,14 @@ export class OtpService {
   }
 
   /**
-   * Verifica el OTP (vía provider) y devuelve el usuario (existente o recién creado) para que AuthService emita tokens.
-   * Lanza: OTP_* desde el provider; ROLE_MISMATCH desde aquí.
+   * Verifica el OTP (vía provider) y devuelve el usuario (existente o recién creado)
+   * para que AuthService emita tokens.
+   * Lanza: OTP_* desde el provider.
    */
   async verifyOtp(
     phone: string,
     code: string,
-    desiredRole: 'USER' | 'STORE_OWNER',
+    _desiredRole?: 'USER' | 'STORE_OWNER',
   ): Promise<{
     id: number;
     name: string | null;
@@ -52,19 +56,12 @@ export class OtpService {
       include: { stores: true },
     });
 
-    if (user) {
-      if (user.role !== desiredRole) {
-        throw new ConflictException({
-          code: 'ROLE_MISMATCH',
-          message: `This phone is already registered as ${user.role}. Use that role or a different phone.`,
-          currentRole: user.role,
-        });
-      }
-    } else {
+    if (!user) {
       user = await this.prisma.user.create({
         data: {
           phone: normalized,
-          role: desiredRole as Role,
+          // Usuarios creados vía OTP se crean con el rol por defecto USER.
+          role: Role.USER,
           name: null,
           email: null,
           password: null,

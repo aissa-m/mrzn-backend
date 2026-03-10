@@ -17,6 +17,15 @@ import type { JwtUserPayload } from '../auth/types/auth.types';
 
 type UploadResult = { url: string; key: string };
 
+const PRODUCT_STATUS = {
+  ACTIVE: 'ACTIVE',
+  RESERVED: 'RESERVED',
+  SOLD: 'SOLD',
+  PAUSED: 'PAUSED',
+} as const;
+
+type ProductStatus = (typeof PRODUCT_STATUS)[keyof typeof PRODUCT_STATUS];
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -136,7 +145,12 @@ export class ProductsService {
 
   async findAllByStore(storeId: number) {
     const rows = await this.prisma.product.findMany({
-      where: { storeId },
+      where: {
+        storeId,
+        status: {
+          in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+        },
+      } as any,
       include: {
         images: true,
         category: {
@@ -155,13 +169,18 @@ export class ProductsService {
     // 🔥 Convertimos Decimal → number antes de devolver
     return rows.map((p) => ({
       ...p,
+      status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
       price: (p.price as any).toNumber
         ? (p.price as any).toNumber()
         : Number(p.price),
     }));
   }
 
-  async findOne(id: number) {
+  /**
+   * Detalle de producto. Si está inactivo, solo lo ve el propietario o un ADMIN;
+   * en caso contrario se devuelve 404 (oculto públicamente).
+   */
+  async findOne(id: number, user?: JwtUserPayload) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -179,6 +198,7 @@ export class ProductsService {
             slug: true,
           },
         },
+        user: { select: { id: true } },
       },
     });
 
@@ -186,8 +206,24 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
+    const productWithUser = product as typeof product & { user: { id: number } };
+    const isOwnerOrAdmin =
+      user &&
+      (productWithUser.user.id === Number(user.id) || user.role === 'ADMIN');
+
+    const status = (product as any).status as ProductStatus | undefined;
+    const isVisibleForPublic =
+      status === PRODUCT_STATUS.ACTIVE || status === PRODUCT_STATUS.RESERVED;
+
+    if (!isOwnerOrAdmin && !isVisibleForPublic) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const { user: _u, ...rest } = productWithUser;
     return {
-      ...product,
+      ...rest,
+      isActive: product.isActive,
+      status: status ?? PRODUCT_STATUS.ACTIVE,
       price: product.price
         ? ((product.price as any).toNumber?.() ?? Number(product.price))
         : null,
@@ -378,6 +414,94 @@ export class ProductsService {
     return { ok: true };
   }
 
+  /**
+   * Activa o desactiva la visibilidad del producto (solo isActive).
+   * 404 si no existe; 403 si el usuario no es propietario ni ADMIN.
+   */
+  async setActive(user: JwtUserPayload, id: number, active: boolean) {
+    const userId = Number(user.id);
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    const isOwnerOrAdmin = product.userId === userId || user.role === 'ADMIN';
+    if (!isOwnerOrAdmin) {
+      throw new ForbiddenException(
+        'Solo el propietario del producto o un administrador pueden cambiar su visibilidad',
+      );
+    }
+    const newStatus: ProductStatus = active
+      ? PRODUCT_STATUS.ACTIVE
+      : PRODUCT_STATUS.PAUSED;
+
+    await this.prisma.product.update({
+      where: { id },
+      data: {
+        isActive: active,
+        status: newStatus,
+      } as any,
+    });
+    return this.prisma.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        status: true,
+        updatedAt: true,
+      } as any,
+    });
+  }
+
+  /**
+   * Actualiza el estado del producto en el marketplace (status) y sincroniza isActive.
+   * 404 si no existe; 403 si el usuario no es propietario ni ADMIN.
+   */
+  async setStatus(user: JwtUserPayload, id: number, status: ProductStatus) {
+    const userId = Number(user.id);
+
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const isOwnerOrAdmin = product.userId === userId || user.role === 'ADMIN';
+    if (!isOwnerOrAdmin) {
+      throw new ForbiddenException(
+        'Solo el propietario del producto o un administrador pueden cambiar su estado',
+      );
+    }
+
+    const isActive =
+      status === PRODUCT_STATUS.ACTIVE || status === PRODUCT_STATUS.RESERVED;
+
+    await this.prisma.product.update({
+      where: { id },
+      data: {
+        status,
+        isActive,
+      } as any,
+    });
+
+    return this.prisma.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        isActive: true,
+        updatedAt: true,
+      } as any,
+    });
+  }
+
   async getRelatedProducts(
     categoryId: number,
     exclude?: number,
@@ -385,9 +509,12 @@ export class ProductsService {
   ) {
     const take = Math.min(Math.max(limit, 1), 20);
     const where: Prisma.ProductWhereInput = {
+      status: {
+        in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+      },
       categoryId,
       ...(exclude != null ? { id: { not: exclude } } : {}),
-    };
+    } as any;
 
     const products = await this.prisma.product.findMany({
       where,
@@ -404,6 +531,7 @@ export class ProductsService {
       price: (p.price as any).toNumber?.() ?? Number(p.price),
       coverImage: p.images[0]?.url ?? null,
       createdAt: p.createdAt,
+      status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
     }));
   }
 
@@ -420,6 +548,9 @@ export class ProductsService {
     } = q;
 
     const where: any = {
+      status: {
+        in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+      }, // listado público: solo productos visibles (ACTIVOS o RESERVADOS)
       ...(storeId ? { storeId: Number(storeId) } : {}),
 
       ...(search
@@ -468,13 +599,15 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
-    // Normalizamos price (Decimal) y las imágenes
+    // Normalizamos price (Decimal) y las imágenes; solo productos activos en listado público
     const safeItems = items.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
       price: p.price ? p.price.toNumber() : null,
       storeId: p.storeId,
+      isActive: (p as any).isActive ?? true,
+      status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
 

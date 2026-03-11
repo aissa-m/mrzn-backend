@@ -8,10 +8,20 @@ export const SUPPORTED_SUPPORT_LANGS = ['en', 'fr', 'ar'] as const;
 export type SupportLang = (typeof SUPPORTED_SUPPORT_LANGS)[number];
 
 export function getSupportWelcomeMessageForLang(lang?: string): string {
-  const normalized = lang?.toLowerCase().trim() || 'en';
+  const normalized = lang?.toLowerCase().trim();
+
+  if (!normalized) {
+    // Fallback por defecto: francés
+    return SUPPORT_WELCOME_MESSAGES_BY_LANG['fr'];
+  }
+
   return (
     SUPPORT_WELCOME_MESSAGES_BY_LANG[normalized] ??
-    SUPPORT_WELCOME_MESSAGES_BY_LANG['en']
+    SUPPORT_WELCOME_MESSAGES_BY_LANG['fr']
   );
 }
 
+export function isSupportWelcomeMessage(content?: string | null): boolean {
+  if (!content) return false;
+  return Object.values(SUPPORT_WELCOME_MESSAGES_BY_LANG).includes(content);
+}

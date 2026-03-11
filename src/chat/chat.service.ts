@@ -15,7 +15,10 @@ import { JwtUserPayload } from '../auth/types';
 import { CursorDto, PageDto } from './dto/pagination.dto';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { ChatGateway } from './chat.gateway';
-import { getSupportWelcomeMessageForLang } from './constants/support-welcome-messages';
+import {
+  getSupportWelcomeMessageForLang,
+  isSupportWelcomeMessage,
+} from './constants/support-welcome-messages';
 
 function parseCursor(cursor?: string) {
   if (!cursor) return null;
@@ -177,11 +180,42 @@ export class ChatService {
     conversationId: number,
     cursorDto: CursorDto,
   ) {
-    // acceso
-    const part = await this.prisma.conversationParticipant.findUnique({
-      where: { conversationId_userId: { conversationId, userId: user.id } },
+    console.log('[getMessages] start', {
+      conversationId,
+      userId: user.id,
+      role: user.role,
     });
-    if (!part) throw new ForbiddenException('Not a participant');
+
+    // Para conversaciones de soporte abiertas desde el inbox admin,
+    // garantizamos que el admin figure como participante.
+    const ensured =
+      (await this.ensureAdminSupportParticipant(user, conversationId)) ?? null;
+
+    console.log('[getMessages] ensured participant', ensured && {
+      conversationId: ensured.conversationId,
+      userId: ensured.userId,
+    });
+
+    // acceso (para chats normales y soporte ya garantizado)
+    const part =
+      ensured ??
+      (await this.prisma.conversationParticipant.findUnique({
+        where: { conversationId_userId: { conversationId, userId: user.id } },
+      }));
+
+    console.log('[getMessages] final participant', part && {
+      conversationId: part.conversationId,
+      userId: part.userId,
+    });
+
+    if (!part) {
+      console.warn('[getMessages] forbidden - not a participant', {
+        conversationId,
+        userId: user.id,
+        role: user.role,
+      });
+      throw new ForbiddenException('Not a participant');
+    }
 
     const cursorParsed = parseCursor(cursorDto.cursor);
     const take = cursorDto.limit ?? 30;
@@ -205,25 +239,75 @@ export class ChatService {
         sender: { select: { id: true, name: true } },
       },
     });
+    let visibleMessages = messages;
 
-    const nextCursor = messages.length
-      ? `${messages[messages.length - 1].createdAt.toISOString()}_${messages[messages.length - 1].id}`
+    // Para admins en conversaciones de soporte, ocultar el mensaje SYSTEM
+    // de bienvenida de soporte (pensado solo para el usuario final).
+    if (user.role === 'ADMIN') {
+      const convo = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { isSupport: true },
+      });
+
+      if (convo?.isSupport) {
+        visibleMessages = messages.filter(
+          (m) => !(m.type === 'SYSTEM' && isSupportWelcomeMessage(m.content)),
+        );
+      }
+    }
+
+    const nextCursor = visibleMessages.length
+      ? `${visibleMessages[visibleMessages.length - 1].createdAt.toISOString()}_${
+          visibleMessages[visibleMessages.length - 1].id
+        }`
       : null;
 
-    return { data: messages, nextCursor };
+    return { data: visibleMessages, nextCursor };
   }
 
   /** Enviar texto - VERSIÓN MEJORADA */
   async sendText(user: JwtUserPayload, dto: SendMessageDto) {
-    const part = await this.prisma.conversationParticipant.findUnique({
-      where: {
-        conversationId_userId: {
-          conversationId: dto.conversationId,
-          userId: user.id,
-        },
-      },
+    console.log('[sendText] start', {
+      conversationId: dto.conversationId,
+      userId: user.id,
+      role: user.role,
     });
-    if (!part) throw new ForbiddenException('Not a participant');
+
+    // Para conversaciones de soporte abiertas desde el inbox admin,
+    // garantizamos que el admin figure como participante antes de enviar.
+    const ensured =
+      (await this.ensureAdminSupportParticipant(user, dto.conversationId)) ??
+      null;
+
+    console.log('[sendText] ensured participant', ensured && {
+      conversationId: ensured.conversationId,
+      userId: ensured.userId,
+    });
+
+    const part =
+      ensured ??
+      (await this.prisma.conversationParticipant.findUnique({
+        where: {
+          conversationId_userId: {
+            conversationId: dto.conversationId,
+            userId: user.id,
+          },
+        },
+      }));
+
+    console.log('[sendText] final participant', part && {
+      conversationId: part.conversationId,
+      userId: part.userId,
+    });
+
+    if (!part) {
+      console.warn('[sendText] forbidden - not a participant', {
+        conversationId: dto.conversationId,
+        userId: user.id,
+        role: user.role,
+      });
+      throw new ForbiddenException('Not a participant');
+    }
 
     const msg = await this.prisma.message.create({
       data: {
@@ -363,6 +447,47 @@ export class ChatService {
 
   /** Marcar como leído - VERSIÓN MEJORADA */
   async markRead(user: JwtUserPayload, conversationId: number) {
+    console.log('[markRead] start', {
+      conversationId,
+      userId: user.id,
+      role: user.role,
+    });
+
+    // Para conversaciones de soporte abiertas desde el inbox admin,
+    // garantizamos que el admin figure como participante antes de marcar leído.
+    const ensured =
+      (await this.ensureAdminSupportParticipant(user, conversationId)) ?? null;
+
+    console.log('[markRead] ensured participant', ensured && {
+      conversationId: ensured.conversationId,
+      userId: ensured.userId,
+    });
+
+    const part =
+      ensured ??
+      (await this.prisma.conversationParticipant.findUnique({
+        where: { conversationId_userId: { conversationId, userId: user.id } },
+      }));
+
+    console.log('[markRead] final participant before update', part && {
+      conversationId: part.conversationId,
+      userId: part.userId,
+    });
+
+    if (!part) {
+      console.warn('[markRead] forbidden - not a participant', {
+        conversationId,
+        userId: user.id,
+        role: user.role,
+      });
+      throw new ForbiddenException('Not a participant');
+    }
+
+    console.log('[markRead] updating lastReadAt', {
+      conversationId,
+      userId: user.id,
+    });
+
     const updated = await this.prisma.conversationParticipant.update({
       where: { conversationId_userId: { conversationId, userId: user.id } },
       data: { lastReadAt: new Date() },
@@ -376,6 +501,82 @@ export class ChatService {
     );
 
     return { ok: true, at: updated.lastReadAt };
+  }
+
+  /**
+   * Garantiza que un ADMIN figure como participante en una conversación de soporte.
+   *
+   * - Verifica que la conversación exista.
+   * - Verifica que sea de soporte (isSupport = true).
+   * - Verifica que el usuario tenga rol ADMIN.
+   * - Si ya existe ConversationParticipant, lo devuelve.
+   * - Si no existe, lo crea con rol "SUPPORT" y joinedAt adecuado.
+   *
+   * Para conversaciones que no son de soporte o usuarios no ADMIN, no hace nada y devuelve null.
+   */
+  private async ensureAdminSupportParticipant(
+    user: JwtUserPayload,
+    conversationId: number,
+  ) {
+    console.log('[ensureAdminSupportParticipant] start', {
+      conversationId,
+      userId: user.id,
+      role: user.role,
+    });
+
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, isSupport: true },
+    });
+
+    console.log('[ensureAdminSupportParticipant] conversation', conversation);
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // Solo aplica a conversaciones de soporte y usuarios ADMIN
+    if (!conversation.isSupport || user.role !== 'ADMIN') {
+      console.log(
+        '[ensureAdminSupportParticipant] skip - not support or not admin',
+        {
+          isSupport: conversation.isSupport,
+          role: user.role,
+        },
+      );
+      return null;
+    }
+
+    console.log(
+      '[ensureAdminSupportParticipant] upserting participant for admin support',
+      {
+        conversationId,
+        userId: user.id,
+      },
+    );
+
+    const participant = await this.prisma.conversationParticipant.upsert({
+      where: {
+        conversationId_userId: {
+          conversationId,
+          userId: user.id,
+        },
+      },
+      update: {},
+      create: {
+        conversationId,
+        userId: user.id,
+        role: 'SUPPORT',
+        joinedAt: new Date(),
+      },
+    });
+
+    console.log('[ensureAdminSupportParticipant] ensured participant', {
+      conversationId: participant.conversationId,
+      userId: participant.userId,
+    });
+
+    return participant;
   }
 
   async deleteConversation(user: JwtUserPayload, conversationId: number) {
@@ -591,6 +792,74 @@ export class ChatService {
 
     return {
       data: result,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        pages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  /**
+   * Listar conversaciones de soporte para un admin.
+   * Solo conversaciones con isSupport = true, orden lastMessageAt desc, id desc.
+   * Incluye datos del usuario que abrió soporte (supportUser) y unread para el admin actual.
+   */
+  async listSupportConversationsForAdmin(
+    adminUser: JwtUserPayload,
+    pageDto: PageDto,
+  ) {
+    const { page = 1, pageSize = 20 } = pageDto;
+
+    const [total, convos] = await this.prisma.$transaction([
+      this.prisma.conversation.count({
+        where: { isSupport: true },
+      }),
+      this.prisma.conversation.findMany({
+        where: { isSupport: true },
+        orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          supportUser: {
+            select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
+          },
+          lastMessage: true,
+          participants: {
+            select: { userId: true, lastReadAt: true },
+          },
+        },
+      }),
+    ]);
+
+    const data = await Promise.all(
+      convos.map(async (c) => {
+        const me = c.participants.find((p) => p.userId === adminUser.id);
+        const lastReadAt = me?.lastReadAt ?? new Date(0);
+        const unread = await this.prisma.message.count({
+          where: {
+            conversationId: c.id,
+            createdAt: { gt: lastReadAt },
+            NOT: { senderId: adminUser.id },
+          },
+        });
+        return {
+          id: c.id,
+          isSupport: c.isSupport,
+          supportUserId: c.supportUserId,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+          lastMessageAt: c.lastMessageAt,
+          lastMessage: c.lastMessage,
+          supportUser: c.supportUser,
+          unread,
+        };
+      }),
+    );
+
+    return {
+      data,
       pagination: {
         page,
         pageSize,

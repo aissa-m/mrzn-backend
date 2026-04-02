@@ -8,6 +8,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OwnershipService } from '../common/services/ownership.service';
+import { SellerContextService } from '../common/services/seller-context.service';
+import {
+  productSellerPrismaSelect,
+  resolveProductSellerPresentation,
+} from '../common/utils/product-seller-presentation.util';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Prisma } from '@prisma/client';
@@ -31,8 +36,30 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownership: OwnershipService,
+    private readonly sellerContext: SellerContextService,
     private s3Service: S3Service,
-  ) { }
+  ) {}
+
+  /** Respuesta de detalle / create / update: sin `user`, con `sellerType` y `store` resueltos. */
+  private toProductDetailBody(row: Record<string, any>) {
+    const { user: _user, store: _rawStore, ...rest } = row;
+    const pres = resolveProductSellerPresentation(
+      row.userId,
+      row.storeId,
+      row.store,
+      row.user,
+    );
+    return {
+      ...rest,
+      ...pres,
+      listingMode: row.listingMode ?? 'PERSONAL',
+      isActive: row.isActive,
+      status: (row as any).status ?? PRODUCT_STATUS.ACTIVE,
+      price: row.price
+        ? ((row.price as any).toNumber?.() ?? Number(row.price))
+        : null,
+    };
+  }
 
   async create(
     user: JwtUserPayload,
@@ -51,20 +78,10 @@ export class ProductsService {
         throw new BadRequestException('La categoría seleccionada no existe');
       }
 
-      // Si se envía storeId, la tienda debe pertenecer al usuario (salvo ADMIN)
-      if (dto.storeId != null && dto.storeId !== undefined) {
-        const canUseStore =
-          user.role === 'ADMIN' ||
-          (await this.ownership.isStoreOwner(userId, dto.storeId));
-        if (!canUseStore) {
-          throw new ForbiddenException(
-            'No tienes permiso para asociar el producto a esa tienda',
-          );
-        }
-      }
+      const sellerCtx = await this.sellerContext.getSellerContext(userId);
 
-      // 1) Crear el producto con ProductCreateInput (solo relaciones connect, sin IDs directos)
-      const createData: Record<string, unknown> = {
+      // Ownership siempre por userId; si puede publicar como tienda, se persiste `storeId` (feed/búsqueda/chat alineados).
+      const createData: Prisma.ProductCreateInput = {
         name: dto.name.trim(),
         description: dto.description?.trim() ?? undefined,
         price: new (Prisma as any).Decimal(String(dto.price)),
@@ -73,11 +90,11 @@ export class ProductsService {
       if (dto.categoryId != null) {
         createData.category = { connect: { id: dto.categoryId } };
       }
-      if (dto.storeId != null) {
-        createData.store = { connect: { id: dto.storeId } };
+      if (sellerCtx.canPublishAsStore && sellerCtx.store) {
+        createData.store = { connect: { id: sellerCtx.store.id } };
       }
       const product = await this.prisma.product.create({
-        data: createData as Prisma.ProductCreateInput,
+        data: createData,
       });
 
       // 2) Subir imágenes (si hay)
@@ -110,17 +127,11 @@ export class ProductsService {
         });
       }
 
-      // 4) Devolver producto con categoría, imágenes y tienda
-      return this.prisma.product.findUnique({
+      const full = await this.prisma.product.findUnique({
         where: { id: product.id },
         include: {
           images: true,
-          store: {
-            select: {
-              id: true,
-              ownerId: true,
-            },
-          },
+          ...productSellerPrismaSelect,
           category: {
             select: {
               id: true,
@@ -130,6 +141,10 @@ export class ProductsService {
           },
         },
       });
+      if (!full) {
+        throw new NotFoundException('Product not found after create');
+      }
+      return this.toProductDetailBody(full as any);
     } catch (e) {
       if (
         e instanceof (Prisma as any).PrismaClientKnownRequestError &&
@@ -143,10 +158,22 @@ export class ProductsService {
     }
   }
 
+  /** Productos del dueño de la tienda (la tienda es capa visual; los productos son del usuario). */
   async findAllByStore(storeId: number) {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: {
+        id: true,
+        ownerId: true,
+        name: true,
+        logoUrl: true,
+        logoImageUrl: true,
+      },
+    });
+    if (!store) return [];
     const rows = await this.prisma.product.findMany({
       where: {
-        storeId,
+        userId: store.ownerId,
         status: {
           in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
         },
@@ -166,13 +193,20 @@ export class ProductsService {
       },
     });
 
-    // 🔥 Convertimos Decimal → number antes de devolver
+    const storeDto = {
+      id: store.id,
+      name: store.name,
+      logoImageUrl: store.logoUrl ?? store.logoImageUrl ?? null,
+    };
+
     return rows.map((p) => ({
       ...p,
       status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
       price: (p.price as any).toNumber
         ? (p.price as any).toNumber()
         : Number(p.price),
+      sellerType: 'STORE' as const,
+      store: storeDto,
     }));
   }
 
@@ -185,12 +219,7 @@ export class ProductsService {
       where: { id },
       include: {
         images: true,
-        store: {
-          select: {
-            id: true,
-            ownerId: true,
-          },
-        },
+        ...productSellerPrismaSelect,
         category: {
           select: {
             id: true,
@@ -198,7 +227,6 @@ export class ProductsService {
             slug: true,
           },
         },
-        user: { select: { id: true } },
       },
     });
 
@@ -219,15 +247,7 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    const { user: _u, ...rest } = productWithUser;
-    return {
-      ...rest,
-      isActive: product.isActive,
-      status: status ?? PRODUCT_STATUS.ACTIVE,
-      price: product.price
-        ? ((product.price as any).toNumber?.() ?? Number(product.price))
-        : null,
-    };
+    return this.toProductDetailBody(productWithUser as any);
   }
 
   async update(
@@ -258,18 +278,6 @@ export class ProductsService {
       throw new ForbiddenException(
         'Solo el propietario del producto o un administrador pueden modificarlo',
       );
-    }
-
-    // Si se cambia storeId, validar que la tienda pertenezca al usuario (salvo ADMIN)
-    if (dto.storeId !== undefined && dto.storeId !== null) {
-      const canUseStore =
-        user.role === 'ADMIN' ||
-        (await this.ownership.isStoreOwner(userId, dto.storeId));
-      if (!canUseStore) {
-        throw new ForbiddenException(
-          'No tienes permiso para asociar el producto a esa tienda',
-        );
-      }
     }
 
     // 2) Validar categoría si se proporciona
@@ -304,10 +312,7 @@ export class ProductsService {
       data.categoryId = categoryIdToUse || null;
     }
 
-    // Actualizar storeId si se proporciona (validación de tienda ya hecha arriba)
-    if (dto.storeId !== undefined) {
-      data.storeId = dto.storeId ?? undefined;
-    }
+    // storeId y listingMode no se actualizan (deprecated; ownership es siempre userId).
 
     // 4) Aplicar update de datos básicos
     await this.prisma.product.update({
@@ -365,12 +370,7 @@ export class ProductsService {
       where: { id },
       include: {
         images: true,
-        store: {
-          select: {
-            id: true,
-            ownerId: true,
-          },
-        },
+        ...productSellerPrismaSelect,
         category: {
           select: {
             id: true,
@@ -385,12 +385,7 @@ export class ProductsService {
       throw new NotFoundException('Product not found after update');
     }
 
-    return {
-      ...updated,
-      price: updated.price
-        ? ((updated.price as any).toNumber?.() ?? Number(updated.price))
-        : null,
-    };
+    return this.toProductDetailBody(updated as any);
   }
 
   async remove(user: JwtUserPayload, id: number) {
@@ -522,17 +517,28 @@ export class ProductsService {
       take,
       include: {
         images: { take: 1 },
+        ...productSellerPrismaSelect,
       },
     });
 
-    return products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: (p.price as any).toNumber?.() ?? Number(p.price),
-      coverImage: p.images[0]?.url ?? null,
-      createdAt: p.createdAt,
-      status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
-    }));
+    return products.map((p) => {
+      const pres = resolveProductSellerPresentation(
+        p.userId,
+        p.storeId,
+        p.store,
+        p.user,
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        price: (p.price as any).toNumber?.() ?? Number(p.price),
+        coverImage: p.images[0]?.url ?? null,
+        createdAt: p.createdAt,
+        status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
+        sellerType: pres.sellerType,
+        store: pres.store,
+      };
+    });
   }
 
   async findManyWithQuery(q: QueryProductsDto) {
@@ -547,11 +553,24 @@ export class ProductsService {
       limit = 20,
     } = q;
 
+    // Si se filtra por tienda, mostrar productos del dueño de la tienda (productos son del usuario)
+    let storeOwnerId: number | undefined;
+    if (storeId) {
+      const store = await this.prisma.store.findUnique({
+        where: { id: Number(storeId) },
+        select: { ownerId: true },
+      });
+      storeOwnerId = store?.ownerId;
+      if (storeOwnerId == null) {
+        return { meta: { page, limit, total: 0, pages: 0, sortBy, sortOrder }, items: [] };
+      }
+    }
+
     const where: any = {
       status: {
         in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
-      }, // listado público: solo productos visibles (ACTIVOS o RESERVADOS)
-      ...(storeId ? { storeId: Number(storeId) } : {}),
+      },
+      ...(storeOwnerId != null ? { userId: storeOwnerId } : {}),
 
       ...(search
         ? {
@@ -581,12 +600,7 @@ export class ProductsService {
         take: limit,
         include: {
           images: true,
-          store: {
-            select: {
-              id: true,
-              ownerId: true, // 👈 aquí está el vendedor
-            },
-          },
+          ...productSellerPrismaSelect,
           category: {
             select: {
               id: true,
@@ -600,23 +614,34 @@ export class ProductsService {
     ]);
 
     // Normalizamos price (Decimal) y las imágenes; solo productos activos en listado público
-    const safeItems = items.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      price: p.price ? p.price.toNumber() : null,
-      storeId: p.storeId,
-      isActive: (p as any).isActive ?? true,
-      status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
+    const safeItems = items.map((p) => {
+      const pres = resolveProductSellerPresentation(
+        p.userId,
+        p.storeId,
+        p.store,
+        p.user,
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: p.price ? p.price.toNumber() : null,
+        listingMode: (p as any).listingMode ?? 'PERSONAL',
+        storeId: p.storeId,
+        sellerType: pres.sellerType,
+        store: pres.store,
+        isActive: (p as any).isActive ?? true,
+        status: (p as any).status ?? PRODUCT_STATUS.ACTIVE,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
 
-      images: p.images.map((img) => img.url),
+        images: p.images.map((img) => img.url),
 
-      mainImage: p.images[0]?.url ?? null,
+        mainImage: p.images[0]?.url ?? null,
 
-      category: p.category,
-    }));
+        category: p.category,
+      };
+    });
 
     return {
       meta: {

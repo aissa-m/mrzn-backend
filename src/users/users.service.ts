@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SellerContextService } from '../common/services/seller-context.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { MeProfileResponseDto } from './dto/me-profile-response.dto';
 import {
@@ -19,6 +20,13 @@ import { PublicProfileResponseDto } from './dto/public-profile-response.dto';
 
 /** Moneda por defecto (Product no tiene campo currency en BD) */
 const DEFAULT_CURRENCY = 'MRU';
+
+/** Phone en respuestas de cuenta / perfil propio: trim; cadena vacía → null */
+function normalizePhoneForMeResponse(phone: string | null): string | null {
+  if (phone == null) return null;
+  const t = phone.trim();
+  return t === '' ? null : t;
+}
 
 /** Campos expuestos en GET/PATCH /users/me (sin password ni datos sensibles) */
 const ME_SELECT = {
@@ -40,18 +48,32 @@ const ME_SELECT = {
   birthDate: true,
   gender: true,
   createdAt: true,
+  sellerMode: true,
   stores: true,
 } as const;
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private sellerContext: SellerContextService,
+  ) {}
 
-  getMe(id: number) {
-    return this.prisma.user.findUnique({
-      where: { id },
-      select: ME_SELECT,
-    });
+  async getMe(id: number) {
+    const [user, seller] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id },
+        select: ME_SELECT,
+      }),
+      this.sellerContext.getSellerContext(id),
+    ]);
+    if (!user) return null;
+    return {
+      ...user,
+      phone: normalizePhoneForMeResponse(user.phone),
+      store: seller.store,
+      canPublishAsStore: seller.canPublishAsStore,
+    };
   }
 
   async updateMe(userId: number, dto: UpdateMeDto) {
@@ -89,6 +111,7 @@ export class UsersService {
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name;
+    if (dto.sellerMode !== undefined) data.sellerMode = dto.sellerMode;
     if (dto.firstName !== undefined) data.firstName = dto.firstName;
     if (dto.lastName !== undefined) data.lastName = dto.lastName;
     if (dto.email !== undefined) data.email = dto.email === '' ? null : dto.email;
@@ -103,16 +126,17 @@ export class UsersService {
       data.birthDate = dto.birthDate ? new Date(dto.birthDate) : null;
     if (dto.gender !== undefined) data.gender = dto.gender;
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: ME_SELECT,
     });
+    return { ...updated, phone: normalizePhoneForMeResponse(updated.phone) };
   }
 
   /** Limpia datos personales (set null). No toca role, phone, id, name, email. */
   async clearPersonalInfo(userId: number) {
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         firstName: null,
@@ -129,14 +153,16 @@ export class UsersService {
       },
       select: ME_SELECT,
     });
+    return { ...updated, phone: normalizePhoneForMeResponse(updated.phone) };
   }
 
   async updateAvatar(userId: number, avatarUrl: string) {
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { avatarUrl },
       select: ME_SELECT,
     });
+    return { ...updated, phone: normalizePhoneForMeResponse(updated.phone) };
   }
 
   /**
@@ -169,7 +195,7 @@ export class UsersService {
    * Consultas en paralelo; sin datos sensibles. rating/reviewsCount preparados para Review.
    */
   async getMeProfile(userId: number): Promise<MeProfileResponseDto> {
-    const [user, stats] = await Promise.all([
+    const [user, stats, seller] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -179,11 +205,14 @@ export class UsersService {
           lastName: true,
           avatarUrl: true,
           email: true,
+          phone: true,
           role: true,
+          sellerMode: true,
           createdAt: true,
         },
       }),
       this.getProfileStats(userId),
+      this.sellerContext.getSellerContext(userId),
     ]);
 
     if (!user) {
@@ -197,7 +226,11 @@ export class UsersService {
       lastName: user.lastName,
       avatarUrl: user.avatarUrl,
       email: user.email,
+      phone: normalizePhoneForMeResponse(user.phone),
       role: user.role,
+      sellerMode: user.sellerMode,
+      store: seller.store,
+      canPublishAsStore: seller.canPublishAsStore,
       createdAt: user.createdAt,
       productsCount: stats.productsCount,
       salesCount: stats.salesCount,

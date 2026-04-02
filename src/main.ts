@@ -131,6 +131,7 @@ async function bootstrap() {
 
   const port = Number(config.get<string>('PORT')) || 3000;
   await app.listen(port, '0.0.0.0');
+  
 
   const url = await app.getUrl();
   logger.log(`🚀 Servidor corriendo en ${url}`);

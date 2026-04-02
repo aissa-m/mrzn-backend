@@ -44,6 +44,37 @@ enum Role {
   ADMIN
 }
 
+/// Modo de venta del usuario: PERSONAL = solo productos personales; STORE = opera con su tienda (máx. una por cuenta).
+enum SellerMode {
+  PERSONAL
+  STORE
+}
+
+/// Estado de suscripción/plan de la tienda para publicar como tienda. NONE = sin plan; ACTIVE = puede publicar; INACTIVE = suspendido/sin plan.
+enum StoreSubscriptionStatus {
+  NONE
+  ACTIVE
+  INACTIVE
+}
+
+/// Modo de listado del producto: PERSONAL = no vinculado a tienda; STORE = vinculado a la tienda del vendedor.
+enum ListingMode {
+  PERSONAL
+  STORE
+}
+
+/// Tipo de negocio de la tienda (onboarding y filtros).
+enum StoreBusinessType {
+  SUPERMARKET
+  PHARMACY
+  FASHION
+  ELECTRONICS
+  RESTAURANT
+  SERVICES
+  AUTOMOTIVE
+  OTHER
+}
+
 /// Opcional para perfil ampliado (datos personales)
 enum Gender {
   MALE
@@ -124,7 +155,10 @@ model User {
   birthDate    DateTime?
   gender       Gender?
 
-  // tiendas del usuario
+  /// Modo de venta: PERSONAL (solo productos personales) o STORE (opera con su única tienda).
+  sellerMode SellerMode @default(PERSONAL)
+
+  // tiendas del usuario (máximo una por cuenta cuando sellerMode = STORE)
   stores Store[]
 
   // productos que vende (marketplace unificado; store opcional)
@@ -209,22 +243,41 @@ model Store {
 
   /// Descripción larga de la tienda
   description   String?
-  /// Imagen principal (logo)
+  /// Imagen principal (logo) — flujo onboarding
+  logoUrl       String?
+  /// Imagen de portada/cabecera — flujo onboarding
+  bannerUrl     String?
+  /// @deprecated Usar logoUrl en nuevo flujo. Se mantiene por compatibilidad.
   logoImageUrl  String?
-  /// Imagen de portada/cabecera
+  /// @deprecated Usar bannerUrl en nuevo flujo. Se mantiene por compatibilidad.
   coverImageUrl String?
 
-  /// Datos de contacto
+  /// Tipo de negocio (SUPERMARKET, PHARMACY, FASHION, etc.)
+  businessType StoreBusinessType?
+
+  /// Teléfono de tienda normalizado (+222XXXXXXXX). Único por tienda. Frontend envía solo parte local.
+  phone String? @unique
+
+  /// Datos de contacto (legacy)
   contactEmail   String?
+  /// @deprecated Usar phone (normalizado +222) en nuevo flujo.
   contactPhone   String?
+  /// @deprecated En nuevo flujo usar phone.
   whatsappNumber String?
 
-  /// Ubicación (adaptada a Mauritania)
+  /// Ubicación: wilaya (región) — código y nombre
+  regionCode String?
+  regionName String?
+  /// Ubicación: moughataa (departamento) — código y nombre
+  departmentCode String?
+  departmentName String?
+  /// Dirección libre (complemento)
   address  String?
   city     String?
-  region   String? // Wilaya o región
+  /// @deprecated Usar regionCode/regionName en nuevo flujo.
+  region   String?
 
-  /// Redes sociales y web
+  /// @deprecated No formar parte del flujo visible de onboarding. Mantener por compatibilidad.
   facebookUrl  String?
   instagramUrl String?
   twitterUrl   String?
@@ -233,6 +286,8 @@ model Store {
 
   /// Estado de la tienda (visible, suspendida, etc.)
   status StoreStatus @default(ACTIVE)
+  /// Estado de suscripción/plan: NONE = sin plan; ACTIVE = puede publicar como tienda; INACTIVE = suspendido/sin plan (productos de tienda se conservan).
+  subscriptionStatus StoreSubscriptionStatus @default(NONE)
 
   products Product[]
 
@@ -275,11 +330,13 @@ model Product {
   /// PAUSED   = pausado/oculto (solo visible para el propietario)
   status ProductStatus @default(ACTIVE)
 
-  /// Vendedor del producto (obligatorio). Permite venta sin tienda (marketplace unificado).
+  /// Propietario del producto (siempre el usuario). La tienda es solo capa visual/comercial, no propietaria.
   userId Int
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// Tienda asociada (opcional). Si existe, el producto aparece también en la tienda.
+  /// @deprecated No usado para lógica: se mantiene por compatibilidad. Mostrar "como tienda" depende de User.sellerMode y Store.
+  listingMode ListingMode @default(PERSONAL)
+  /// @deprecated No usado para ownership. Se mantiene por compatibilidad; nuevos productos se crean con null.
   storeId Int?
   store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
 

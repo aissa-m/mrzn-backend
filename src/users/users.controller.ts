@@ -20,6 +20,7 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { MeProfileResponseDto } from './dto/me-profile-response.dto';
+import { MeAccountResponseDto } from './dto/me-account-response.dto';
 import { QueryMyTransactionsDto } from './dto/query-my-transactions.dto';
 import { QueryPublicProfileDto } from './dto/query-public-profile.dto';
 import { PublicProfileResponseDto } from './dto/public-profile-response.dto';
@@ -27,6 +28,7 @@ import { PaginatedTransactionsResponseDto } from './dto/paginated-transactions-r
 import { TransactionDetailResponseDto } from './dto/transaction-detail-response.dto';
 import {
   ApiBearerAuth,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -41,6 +43,8 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me/profile')
+  @ApiBearerAuth('bearer')
+  @ApiOkResponse({ type: MeProfileResponseDto, description: 'Perfil ligero del usuario autenticado (incluye phone)' })
   getMeProfile(@CurrentUser() user: { id: number }): Promise<MeProfileResponseDto> {
     return this.usersService.getMeProfile(user.id);
   }
@@ -65,12 +69,16 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
+  @ApiBearerAuth('bearer')
+  @ApiOkResponse({ type: MeAccountResponseDto, description: 'Cuenta del usuario autenticado (incluye phone)' })
   me(@CurrentUser() user: { id: number }) {
     return this.usersService.getMe(user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('me')
+  @ApiBearerAuth('bearer')
+  @ApiOkResponse({ type: MeAccountResponseDto })
   updateMe(
     @CurrentUser() user: { id: number },
     @Body() dto: UpdateMeDto,

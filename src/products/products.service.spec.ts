@@ -8,6 +8,7 @@ import {
 import { ProductsService } from './products.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OwnershipService } from '../common/services/ownership.service';
+import { SellerContextService } from '../common/services/seller-context.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -17,6 +18,7 @@ describe('ProductsService', () => {
   let service: ProductsService;
   let prismaService: jest.Mocked<PrismaService>;
   let ownershipService: jest.Mocked<OwnershipService>;
+  let sellerContextService: jest.Mocked<SellerContextService>;
   let s3Service: jest.Mocked<S3Service>;
 
   const mockUser = { id: 1, email: 'test@example.com', role: 'USER' as const };
@@ -31,14 +33,27 @@ describe('ProductsService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
     images: [],
-    store: { id: 1, ownerId: 1 },
+    store: {
+      id: 1,
+      ownerId: 1,
+      name: 'Tienda',
+      logoUrl: null,
+      logoImageUrl: null,
+      status: 'ACTIVE',
+      subscriptionStatus: 'ACTIVE',
+    },
+    user: {
+      id: 1,
+      sellerMode: 'PERSONAL',
+      stores: [],
+    },
+    category: { id: 1, name: 'Cat', slug: 'cat' },
   };
 
   beforeEach(async () => {
     const mockPrismaService = {
-      category: {
-        findUnique: jest.fn(),
-      },
+      category: { findUnique: jest.fn() },
+      store: { findUnique: jest.fn(), findFirst: jest.fn() },
       product: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -47,16 +62,21 @@ describe('ProductsService', () => {
         delete: jest.fn(),
         count: jest.fn(),
       },
-      productImage: {
-        createMany: jest.fn(),
-        deleteMany: jest.fn(),
-      },
+      productImage: { createMany: jest.fn(), deleteMany: jest.fn() },
       $transaction: jest.fn(),
     };
 
     const mockOwnershipService = {
       isStoreOwner: jest.fn(),
       isProductOwner: jest.fn(),
+    };
+
+    const mockSellerContextService = {
+      getSellerContext: jest.fn().mockResolvedValue({
+        sellerMode: 'PERSONAL',
+        store: null,
+        canPublishAsStore: false,
+      }),
     };
 
     const mockS3Service = {
@@ -68,6 +88,7 @@ describe('ProductsService', () => {
         ProductsService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: OwnershipService, useValue: mockOwnershipService },
+        { provide: SellerContextService, useValue: mockSellerContextService },
         { provide: S3Service, useValue: mockS3Service },
       ],
     }).compile();
@@ -75,6 +96,7 @@ describe('ProductsService', () => {
     service = module.get<ProductsService>(ProductsService);
     prismaService = module.get(PrismaService);
     ownershipService = module.get(OwnershipService);
+    sellerContextService = module.get(SellerContextService);
     s3Service = module.get(S3Service);
 
     jest.clearAllMocks();
@@ -98,7 +120,6 @@ describe('ProductsService', () => {
 
     it('should create a product successfully', async () => {
       prismaService.category.findUnique.mockResolvedValue({ id: 1, name: 'Cat', slug: 'cat' });
-      ownershipService.isStoreOwner.mockResolvedValue(true);
       prismaService.product.create.mockResolvedValue(mockProduct);
       s3Service.uploadFile.mockResolvedValue({ url: 'http://test.com/image.jpg', key: 'key' });
       prismaService.productImage.createMany.mockResolvedValue({ count: 1 });
@@ -109,12 +130,12 @@ describe('ProductsService', () => {
 
       const result = await service.create(mockUser, createDto, [mockFile]);
 
+      expect(sellerContextService.getSellerContext).toHaveBeenCalledWith(1);
       expect(prismaService.product.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            userId: 1,
-            storeId: 1,
             name: 'Test Product',
+            user: { connect: { id: 1 } },
           }),
         }),
       );
@@ -122,37 +143,61 @@ describe('ProductsService', () => {
       expect(result).toBeDefined();
     });
 
-    it('should create product without images and without storeId', async () => {
+    it('should create product without images (storeId/listingMode ignored)', async () => {
       prismaService.category.findUnique.mockResolvedValue({ id: 1, name: 'Cat', slug: 'cat' });
       const dtoNoStore = { ...createDto, storeId: undefined };
       prismaService.product.create.mockResolvedValue({ ...mockProduct, storeId: null });
-      prismaService.product.findUnique.mockResolvedValue(mockProduct);
+      prismaService.product.findUnique.mockResolvedValue({
+        ...mockProduct,
+        storeId: null,
+        store: null,
+      });
 
       const result = await service.create(mockUser, dtoNoStore as CreateProductDto, []);
 
       expect(prismaService.product.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            userId: 1,
-            storeId: null,
+            user: { connect: { id: 1 } },
           }),
         }),
       );
       expect(result).toBeDefined();
+      expect((result as any).sellerType).toBe('PERSONAL');
     });
 
-    it('should throw ForbiddenException if storeId does not belong to user', async () => {
+    it('should connect store on create when seller can publish as store', async () => {
       prismaService.category.findUnique.mockResolvedValue({ id: 1, name: 'Cat', slug: 'cat' });
-      ownershipService.isStoreOwner.mockResolvedValue(false);
-      await expect(
-        service.create({ id: 1, role: 'USER' }, createDto, []),
-      ).rejects.toThrow(ForbiddenException);
-      expect(prismaService.product.create).not.toHaveBeenCalled();
+      sellerContextService.getSellerContext.mockResolvedValueOnce({
+        sellerMode: 'STORE',
+        store: {
+          id: 5,
+          name: 'Mi tienda',
+          status: 'ACTIVE',
+          subscriptionStatus: 'ACTIVE',
+        },
+        canPublishAsStore: true,
+      });
+      prismaService.product.create.mockResolvedValue({ ...mockProduct, storeId: 5 });
+      prismaService.product.findUnique.mockResolvedValue({
+        ...mockProduct,
+        storeId: 5,
+        store: mockProduct.store,
+      });
+
+      await service.create(mockUser, { ...createDto, storeId: undefined }, []);
+
+      expect(prismaService.product.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            store: { connect: { id: 5 } },
+          }),
+        }),
+      );
     });
 
     it('should throw ConflictException on duplicate name', async () => {
       prismaService.category.findUnique.mockResolvedValue({ id: 1, name: 'Cat', slug: 'cat' });
-      ownershipService.isStoreOwner.mockResolvedValue(true);
       const error = new Prisma.PrismaClientKnownRequestError('', {
         code: 'P2002',
         clientVersion: '1.0.0',
@@ -166,7 +211,6 @@ describe('ProductsService', () => {
 
     it('should throw BadRequestException if all uploads fail', async () => {
       prismaService.category.findUnique.mockResolvedValue({ id: 1, name: 'Cat', slug: 'cat' });
-      ownershipService.isStoreOwner.mockResolvedValue(true);
       prismaService.product.create.mockResolvedValue(mockProduct);
       s3Service.uploadFile.mockRejectedValue(new Error('Upload failed'));
 
@@ -178,7 +222,11 @@ describe('ProductsService', () => {
 
   describe('findOne', () => {
     it('should return a product by id', async () => {
-      prismaService.product.findUnique.mockResolvedValue(mockProduct);
+      prismaService.product.findUnique.mockResolvedValue({
+        ...mockProduct,
+        status: 'ACTIVE',
+        isActive: true,
+      });
 
       const result = await service.findOne(1);
 
@@ -187,11 +235,12 @@ describe('ProductsService', () => {
           where: { id: 1 },
           include: expect.objectContaining({
             images: true,
-            store: { select: { id: true, ownerId: true } },
+            user: expect.any(Object),
           }),
         }),
       );
       expect(result).toBeDefined();
+      expect((result as any).sellerType).toBe('STORE');
     });
 
     it('should throw NotFoundException if product does not exist', async () => {
@@ -202,19 +251,37 @@ describe('ProductsService', () => {
   });
 
   describe('findAllByStore', () => {
-    it('should return all products for a store', async () => {
+    it('should return all products for a store (by store owner)', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        id: 1,
+        ownerId: 1,
+        name: 'Shop',
+        logoUrl: null,
+        logoImageUrl: null,
+      });
       prismaService.product.findMany.mockResolvedValue([mockProduct]);
 
       const result = await service.findAllByStore(1);
 
+      expect(prismaService.store.findUnique).toHaveBeenCalledWith({
+        where: { id: 1 },
+        select: {
+          id: true,
+          ownerId: true,
+          name: true,
+          logoUrl: true,
+          logoImageUrl: true,
+        },
+      });
       expect(prismaService.product.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { storeId: 1 },
-          include: expect.objectContaining({ images: true }),
+          where: expect.objectContaining({ userId: 1 }),
           orderBy: { createdAt: 'desc' },
         }),
       );
       expect(result).toHaveLength(1);
+      expect((result[0] as any).sellerType).toBe('STORE');
+      expect((result[0] as any).store?.id).toBe(1);
     });
   });
 
@@ -226,8 +293,8 @@ describe('ProductsService', () => {
 
     it('should update a product successfully when user is owner', async () => {
       prismaService.product.findUnique
-        .mockResolvedValueOnce(mockProduct)
-        .mockResolvedValueOnce({ ...mockProduct, name: 'Updated Product' });
+        .mockResolvedValueOnce({ ...mockProduct, images: [], user: { id: 1 } })
+        .mockResolvedValueOnce({ ...mockProduct, name: 'Updated Product', images: [] });
       prismaService.product.update.mockResolvedValue({
         ...mockProduct,
         name: 'Updated Product',
@@ -242,7 +309,7 @@ describe('ProductsService', () => {
     it('should update when user is ADMIN even if not owner', async () => {
       const adminUser = { id: 99, role: 'ADMIN' as const };
       prismaService.product.findUnique
-        .mockResolvedValueOnce(mockProduct)
+        .mockResolvedValueOnce({ ...mockProduct, images: [], user: { id: 1 } })
         .mockResolvedValueOnce(mockProduct);
       prismaService.product.update.mockResolvedValue(mockProduct);
 
@@ -260,7 +327,7 @@ describe('ProductsService', () => {
     });
 
     it('should throw ForbiddenException if user is not owner nor admin', async () => {
-      prismaService.product.findUnique.mockResolvedValue(mockProduct);
+      prismaService.product.findUnique.mockResolvedValue({ ...mockProduct, images: [], user: { id: 1 } });
       const otherUser = { id: 999, role: 'USER' as const };
 
       await expect(service.update(otherUser, 1, updateDto, [])).rejects.toThrow(
@@ -271,7 +338,7 @@ describe('ProductsService', () => {
 
   describe('remove', () => {
     it('should delete a product successfully when user is owner', async () => {
-      prismaService.product.findUnique.mockResolvedValue({ id: 1, userId: 1 });
+      prismaService.product.findUnique.mockResolvedValue({ id: 1, user: { id: 1 } });
       prismaService.product.delete.mockResolvedValue(mockProduct);
 
       const result = await service.remove(mockUser, 1);
@@ -281,7 +348,7 @@ describe('ProductsService', () => {
     });
 
     it('should delete when user is ADMIN', async () => {
-      prismaService.product.findUnique.mockResolvedValue({ id: 1, userId: 1 });
+      prismaService.product.findUnique.mockResolvedValue({ id: 1, user: { id: 1 } });
       prismaService.product.delete.mockResolvedValue(mockProduct);
 
       const result = await service.remove({ id: 99, role: 'ADMIN' }, 1);
@@ -291,7 +358,7 @@ describe('ProductsService', () => {
     });
 
     it('should throw ForbiddenException if user is not owner nor admin', async () => {
-      prismaService.product.findUnique.mockResolvedValue({ id: 1, userId: 1 });
+      prismaService.product.findUnique.mockResolvedValue({ id: 1, user: { id: 1 } });
 
       await expect(service.remove({ id: 999, role: 'USER' }, 1)).rejects.toThrow(
         ForbiddenException,

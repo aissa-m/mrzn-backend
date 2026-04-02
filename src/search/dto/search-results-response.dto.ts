@@ -45,6 +45,9 @@ export class SearchResultItemDto {
   })
   status: 'ACTIVE' | 'RESERVED' | 'SOLD' | 'PAUSED';
 
+  @ApiProperty({ enum: ['STORE', 'PERSONAL'] })
+  sellerType: 'STORE' | 'PERSONAL';
+
   @ApiProperty({ required: false })
   store?: SearchResultStoreDto;
 }

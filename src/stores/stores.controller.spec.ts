@@ -45,7 +45,7 @@ describe('StoresController', () => {
 
       const result = await controller.create(mockUser, createDto);
 
-      expect(storesService.create).toHaveBeenCalledWith(mockUser.id, createDto);
+      expect(storesService.create).toHaveBeenCalledWith(mockUser.id, createDto, undefined);
       expect(result).toEqual(mockStore);
     });
   });
@@ -79,7 +79,12 @@ describe('StoresController', () => {
 
       const result = await controller.update(mockUser, '1', updateDto);
 
-      expect(storesService.update).toHaveBeenCalledWith(mockUser, 1, updateDto);
+      expect(storesService.update).toHaveBeenCalledWith(
+        { id: mockUser.id, role: mockUser.role },
+        1,
+        updateDto,
+        undefined,
+      );
       expect(result).toBeDefined();
     });
   });
@@ -90,7 +95,10 @@ describe('StoresController', () => {
 
       const result = await controller.remove(mockUser, '1');
 
-      expect(storesService.remove).toHaveBeenCalledWith(mockUser, 1);
+      expect(storesService.remove).toHaveBeenCalledWith(
+        { id: mockUser.id, role: mockUser.role },
+        1,
+      );
       expect(result).toEqual({ ok: true });
     });
   });

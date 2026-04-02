@@ -31,7 +31,7 @@ import type { JwtUserPayload } from '../auth/types/auth.types';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  // Crear producto: cualquier usuario autenticado; ownership por product.userId; storeId opcional
+  // Crear producto: cualquier usuario autenticado; ownership siempre por product.userId (tienda es capa visual)
   @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
@@ -61,7 +61,7 @@ export class ProductsController {
         name: { type: 'string', example: 'Café molido' },
         description: { type: 'string', example: 'Paquete 250g' },
         price: { type: 'number', example: 3.5 },
-        storeId: { type: 'number', example: 1, description: 'Opcional; si se envía debe ser tienda del usuario' },
+        storeId: { type: 'number', description: 'Deprecated; ignorado. Productos siempre del usuario.' },
         categoryIds: {
           type: 'array',
           items: { type: 'number' },

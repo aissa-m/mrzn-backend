@@ -1,102 +1,122 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Maurizone — API backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend del marketplace **Maurizone** (Mauritania / MRU): NestJS, PostgreSQL y Prisma. Expone REST bajo el prefijo global `api`, documentación OpenAPI en desarrollo y integración de pagos vía **Moosyl**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Stack técnico
 
-## Description
+| Área | Tecnología |
+|------|------------|
+| Framework | [NestJS](https://nestjs.com/) 11 |
+| Lenguaje | TypeScript 5 |
+| ORM / BD | Prisma 6 + **PostgreSQL** |
+| Auth | JWT (`@nestjs/jwt`, Passport), OTP por teléfono (local o Twilio) |
+| Validación | `class-validator` + `class-transformer`, `ValidationPipe` global |
+| API docs | Swagger (`/api/docs` en no producción) |
+| Tiempo real | Socket.IO (`@nestjs/websockets`, gateway de chat y notificaciones) |
+| Archivos | AWS SDK S3 (subida de imágenes de productos, etc.) |
+| Pagos | Moosyl (webhook con cuerpo crudo para verificación HMAC) |
+| Seguridad HTTP | Helmet, compresión, CORS configurable, rate limit en rutas OTP |
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Requisitos
 
-## Project setup
+- Node.js acorde al proyecto (recomendado: LTS actual)
+- PostgreSQL accesible vía `DATABASE_URL`
+- Variables de entorno (ver [`.env.example`](./.env.example))
+
+## Puesta en marcha
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env   # y completar valores
+npx prisma migrate dev
+npx prisma generate
+npm run prisma:seed    # opcional
+npm run start:dev
 ```
 
-## Compile and run the project
+- **API**: `http://localhost:3000/api` (puerto por `PORT`, por defecto 3000)
+- **Swagger**: `http://localhost:3000/api/docs` (solo si `NODE_ENV !== production`)
+- **Ficheros estáticos**: `/uploads` servido desde la carpeta `uploads` del proyecto
 
-```bash
-# development
-$ npm run start
+### Scripts útiles
 
-# watch mode
-$ npm run start:dev
+| Script | Descripción |
+|--------|-------------|
+| `npm run build` | Compila a `dist/` |
+| `npm run start:prod` | Ejecuta `node dist/main` |
+| `npm run lint` | ESLint |
+| `npm run test` | Tests unitarios (Jest) |
+| `npm run test:cov` | Cobertura |
+| `npm run test:e2e` | E2E (config en `test/jest-e2e.json`) |
 
-# production mode
-$ npm run start:prod
-```
+## Arquitectura funcional (módulos)
 
-## Run tests
+Los módulos principales importados en `AppModule` cubren:
 
-```bash
-# unit tests
-$ npm run test
+- **Auth / Users**: registro, login, OTP, perfil (`/users/me`, perfil público, transacciones/cartera en perfil)
+- **Stores**: tiendas (una por cuenta en el flujo actual), onboarding con tipo de negocio, logo/banner, teléfono `+222…`, wilaya/moughataa
+- **Products**: catálogo, estados (ACTIVE, RESERVED, SOLD, PAUSED), imágenes, relación con categoría única
+- **Categories** y **Attributes**: categorías jerárquicas y atributos por categoría (tipos TEXT, NUMBER, SELECT, MULTISELECT, etc., con opciones y dependencias)
+- **Orders**: pedidos ligados a usuario y tienda del vendedor
+- **Cart** y **Favorites**: carrito por usuario y favoritos
+- **Chat**: conversaciones por producto/tienda/pedido y canal de soporte
+- **Notifications** y **Push tokens**: notificaciones in-app y tokens Expo
+- **Feed** y **Search**: secciones de feed y búsqueda con sugerencias
+- **Locations**: `GET /locations/mauritania` (wilayas y moughataas para el front)
+- **Admin**: gestión (usuarios, categorías, atributos, health) y bootstrap del primer admin con header secreto
+- **Moosyl**: intenciones de pago, cartera (ledger), webhooks idempotentes (`WebhookEvent`)
 
-# e2e tests
-$ npm run test:e2e
+### Modelo de negocio reciente (vendedor / tienda)
 
-# test coverage
-$ npm run test:cov
-```
+Los productos **pertenecen siempre al usuario** (`userId`). La tienda es la capa comercial/visual; el modo `sellerMode` (PERSONAL | STORE) y el estado de la tienda definen cómo se muestra el vendedor. Detalle en [`docs/seller-mode-and-stores.md`](./docs/seller-mode-and-stores.md) y onboarding en [`docs/store-onboarding-and-locations.md`](./docs/store-onboarding-and-locations.md).
 
-## Atributos dinámicos y selects dependientes
+## Variables de entorno (resumen)
 
-Los atributos por categoría (SELECT/MULTISELECT) pueden tener opciones con **parentOptionId**: una opción "hija" apunta a una opción "padre" de otro atributo (ej. Model → Make). Así se habilitan selects dependientes: el frontend puede pedir solo las opciones hijas con `GET /attributes/:attributeId/options?parentOptionId=<id>`.
+Definidas y documentadas en `.env.example`: `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, proveedor OTP, Twilio (si aplica), `ADMIN_BOOTSTRAP_SECRET`, claves Moosyl y secreto de webhook. En producción conviene fijar **`CORS_ORIGIN`** (lista separada por comas); si está vacía o no es producción, CORS es permisivo.
 
-## Deployment
+## Puntos fuertes
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+1. **Dominio de marketplace bien modelado**: pedidos, chat tipo Wallapop, notificaciones, cartera, webhooks de pago e idempotencia.
+2. **Schema Prisma expresivo**: enums claros, índices pensados para listados y atributos flexibles por categoría.
+3. **Buenas prácticas HTTP**: validación global con lista blanca de DTOs, Helmet, compresión, raw body solo donde hace falta (Moosyl).
+4. **Rate limiting en OTP**: reduce abuso de envío/verificación de códigos.
+5. **Documentación interna** en `docs/` para decisiones de producto (modo vendedor, ubicaciones MR).
+6. **Cobertura de tests** en muchos servicios/controladores (aunque parte está desincronizada; ver debilidades).
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Puntos débiles y riesgos
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+1. **Tests rotos o desactualizados** (estado verificado en el repo): varias suites fallan por expectativas antiguas (p. ej. ownership de producto por `userId` vs `store.ownerId`, firmas de controladores) y por dependencias no mockeadas en tests de controladores. Esto **dificulta refactor seguro** y CI fiable.
+2. **E2E mínimo y probablemente incorrecto**: `test/app.e2e-spec.ts` no replica `setGlobalPrefix('api')` ni el mismo bootstrap que `main.ts`, y apunta a `/` en lugar de `/api`.
+3. **Metadatos del paquete genéricos**: `name: "backend"`, sin descripción ni autor en `package.json`; poco útil para publicar o documentar el artefacto.
+4. **Legado en schema**: campos deprecados en `Product` y `Store` (documentados) aumentan complejidad hasta que se planifique migración limpia.
+5. **`S3Controller`**: existe un endpoint de subida en código pero el controlador **no está registrado** en `AppModule`; solo se usa `S3Service` desde productos — riesgo de confusión o código muerto.
+6. **Throttling** aplicado de forma focalizada (sobre todo auth OTP); otras rutas públicas podrían necesitar límites según exposición.
+7. **Dependencia `swagger` en package.json**: además de `@nestjs/swagger` / `swagger-ui-express`; conviene revisar si es redundante.
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Qué es urgente o “mal hecho” y conviene atacar pronto
 
-## Resources
+| Prioridad | Tema | Por qué |
+|-----------|------|--------|
+| **Alta** | Arreglar o alinear tests con el código actual | Sin tests verdes, cada cambio puede romper producción sin aviso. |
+| **Alta** | Revisar E2E + pipeline CI | Un smoke test real (`/api/health`, un flujo auth mínimo) con el mismo bootstrap que producción. |
+| **Media** | Producción: `CORS_ORIGIN`, secretos JWT/Moosyl, desactivar OTP `000000` y `devOtp` | Seguridad y cumplimiento; el flujo local documentado en `.env.example` no debe llegar a prod. |
+| **Media** | Endpoint S3: o registrar con auth/guards o eliminar el controlador huérfano | Evita superficie accidental si alguien lo cablea sin protección. |
+| **Baja** | Limpiar TODOs de código y comentarios obsoletos (p. ej. en `categories.service`) | Higiene y claridad para nuevos desarrolladores. |
 
-Check out a few resources that may come in handy when working with NestJS:
+## Posibles líneas de avance (roadmap sugerido)
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+1. **CI/CD**: GitHub Actions / similar con `lint`, `test`, `prisma validate` y migraciones en entornos.
+2. **Observabilidad**: logging estructurado, correlación de requests, métricas de salud más allá de `GET health`.
+3. **Pagos y pedidos**: estados de pedido alineados con webhooks Moosyl; conciliación y reembolsos si el producto lo requiere.
+4. **Búsqueda**: evolucionar de SQL/Prisma a índice dedicado (Meilisearch, OpenSearch, etc.) si el catálogo crece.
+5. **Verificación de identidad**: el campo `nni` en usuario apunta a futura validación oficial (TODO en servicio de usuarios).
+6. **Migración de legado**: plan para retirar `Product.storeId` / `listingMode` y campos deprecados de tienda cuando no haya clientes viejos.
+7. **Documentación OpenAPI en staging** protegida por auth, si se desea docs fuera de local sin exponer todo en público.
 
-## Support
+## Licencia
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+`UNLICENSED` (privado) según `package.json`.
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+*README generado a partir del código y del estado del repositorio; si cambias rutas, prefijos o el modelo de ownership, actualiza este archivo y los tests en el mismo PR.*

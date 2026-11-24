@@ -39,7 +39,7 @@ export class OtpService {
   async verifyOtp(
     phone: string,
     code: string,
-    _desiredRole?: 'USER' | 'STORE_OWNER',
+    desiredRole?: 'USER' | 'STORE_OWNER',
   ): Promise<{
     id: number;
     name: string | null;
@@ -60,8 +60,10 @@ export class OtpService {
       user = await this.prisma.user.create({
         data: {
           phone: normalized,
-          // Usuarios creados vía OTP se crean con el rol por defecto USER.
-          role: Role.USER,
+          // Por defecto USER. Compatibilidad: la app antigua (tabs Buyer/Owner) envía
+          // desiredRole=STORE_OWNER en el flujo "Vender" y solo muestra las pestañas de
+          // venta a STORE_OWNER. La app nueva siempre envía USER.
+          role: desiredRole === 'STORE_OWNER' ? Role.STORE_OWNER : Role.USER,
           name: null,
           email: null,
           password: null,

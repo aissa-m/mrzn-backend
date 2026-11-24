@@ -86,6 +86,48 @@ describe('OtpService', () => {
       });
     });
 
+    it('should create new user as STORE_OWNER when legacy app sends desiredRole STORE_OWNER', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 3,
+        phone: '+34600000000',
+        role: 'STORE_OWNER',
+        name: null,
+        email: null,
+        password: null,
+        stores: [],
+      });
+
+      await service.verifyOtp(phone, '123456', 'STORE_OWNER');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'STORE_OWNER' }),
+        }),
+      );
+    });
+
+    it('should create new user as USER when desiredRole is omitted', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 4,
+        phone: '+34600000000',
+        role: 'USER',
+        name: null,
+        email: null,
+        password: null,
+        stores: [],
+      });
+
+      await service.verifyOtp(phone, '123456');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'USER' }),
+        }),
+      );
+    });
+
     it('should propagate OTP_EXPIRED from provider and not touch user', async () => {
       mockOtpProvider.verifyCode.mockRejectedValue(
         new BadRequestException({ code: 'OTP_EXPIRED', message: 'Expired' }),

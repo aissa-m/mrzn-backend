@@ -23,6 +23,12 @@ export class FeedItemDto {
   categoryId: number | null;
   /** Nombre de la categoría; null si no hay categoría */
   categoryName?: string | null;
-  /** Presente solo si el producto tiene storeId */
+  /** Estado del producto en el feed (ACTIVE | RESERVED | SOLD | PAUSED) */
+  status: 'ACTIVE' | 'RESERVED' | 'SOLD' | 'PAUSED';
+
+  /** Origen de venta coherente con GET /products */
+  sellerType: 'STORE' | 'PERSONAL';
+
+  /** Presente cuando sellerType es STORE (misma forma que antes: storeId + name + logo) */
   store?: FeedStoreDto;
 }

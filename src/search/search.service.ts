@@ -9,6 +9,12 @@ import type {
   SearchResultStoreDto,
 } from './dto/search-results-response.dto';
 import { getGenericSuggestionsForLang } from './constants/generic-suggestions';
+import {
+  productSellerPrismaSelect,
+  resolveProductSellerPresentation,
+  type ProductLinkedStoreRow,
+  type ProductOwnerUserRow,
+} from '../common/utils/product-seller-presentation.util';
 
 const CURSOR_SEP = '_';
 const SUGGESTIONS_MAX_LIMIT = 10;
@@ -33,6 +39,7 @@ type FeaturedRow = {
   createdAt: Date;
   categoryId: number | null;
   images: { url: string }[];
+  status?: string;
 };
 
 /** Resultado de getResults findMany (con images, category, store) */
@@ -42,10 +49,13 @@ type ResultRow = {
   price: Prisma.Decimal;
   createdAt: Date;
   userId: number;
+  storeId: number | null;
   categoryId: number | null;
   category: { name: string } | null;
-  store: { id: number; name: string; logoImageUrl: string | null } | null;
+  store: ProductLinkedStoreRow | null;
+  user: ProductOwnerUserRow;
   images: { url: string }[];
+  status?: string;
 };
 
 /** Fila de producto para suggestions (name, category, store) */
@@ -81,6 +91,11 @@ function productSearchWhere(
   const term = (q ?? '').trim();
   if (term.length === 0) return undefined;
   const and: Prisma.ProductWhereInput[] = [
+    {
+      status: {
+        in: ['ACTIVE', 'RESERVED'],
+      },
+    } as any,
     {
       OR: [
         { name: { contains: term, mode: 'insensitive' } },
@@ -119,6 +134,9 @@ export class SearchService {
 
     if (rawTerm.length > 0) {
       const where: Prisma.ProductWhereInput = {
+        status: {
+          in: ['ACTIVE', 'RESERVED'],
+        },
         OR: [
           { name: { contains: rawTerm, mode: 'insensitive' } },
           { category: { name: { contains: rawTerm, mode: 'insensitive' } } },
@@ -242,7 +260,7 @@ export class SearchService {
     const where = productSearchWhere(term, excludeUserId);
     if (!where) return [];
 
-    const rows = await this.prisma.product.findMany({
+    const rows = (await this.prisma.product.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: Math.min(take * 2, 20),
@@ -252,13 +270,14 @@ export class SearchService {
         price: true,
         createdAt: true,
         categoryId: true,
+        status: true,
         images: {
           orderBy: { createdAt: 'asc' },
           take: 1,
           select: { url: true },
         },
-      },
-    }) as FeaturedRow[];
+      } as any,
+    })) as unknown as FeaturedRow[];
 
     const nameLower = term.toLowerCase();
     const sorted = [...rows].sort((a, b) => {
@@ -275,6 +294,7 @@ export class SearchService {
       coverImage: p.images[0]?.url ?? null,
       createdAt: p.createdAt.toISOString(),
       categoryId: p.categoryId ?? null,
+      status: (p as any).status ?? 'ACTIVE',
     }));
   }
 
@@ -309,7 +329,7 @@ export class SearchService {
     const fullWhere: Prisma.ProductWhereInput =
       andConditions.length > 1 ? { AND: andConditions } : where;
 
-    const rows = await this.prisma.product.findMany({
+    const rows = (await this.prisma.product.findMany({
       where: fullWhere,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take,
@@ -319,27 +339,30 @@ export class SearchService {
         price: true,
         createdAt: true,
         userId: true,
+        storeId: true,
         categoryId: true,
         category: { select: { name: true } },
-        store: {
-          select: {
-            id: true,
-            name: true,
-            logoImageUrl: true,
-          },
-        },
+        store: productSellerPrismaSelect.store,
+        user: productSellerPrismaSelect.user,
         images: {
           orderBy: { createdAt: 'asc' },
           take: 1,
           select: { url: true },
         },
-      },
-    }) as ResultRow[];
+        status: true,
+      } as any,
+    })) as unknown as ResultRow[];
 
     const hasMore = rows.length > pageSize;
     const items = hasMore ? rows.slice(0, pageSize) : rows;
 
     const resultItems: SearchResultItemDto[] = items.map((p) => {
+      const pres = resolveProductSellerPresentation(
+        p.userId,
+        p.storeId,
+        p.store,
+        p.user,
+      );
       const item: SearchResultItemDto = {
         id: p.id,
         name: p.name,
@@ -349,12 +372,14 @@ export class SearchService {
         categoryId: p.categoryId ?? null,
         categoryName: p.category?.name ?? null,
         userId: p.userId,
+        status: (p as any).status ?? 'ACTIVE',
+        sellerType: pres.sellerType,
       };
-      if (p.store) {
+      if (pres.store) {
         const storeDto: SearchResultStoreDto = {
-          storeId: p.store.id,
-          name: p.store.name,
-          logoImageUrl: p.store.logoImageUrl ?? null,
+          storeId: pres.store.id,
+          name: pres.store.name,
+          logoImageUrl: pres.store.logoImageUrl,
         };
         item.store = storeDto;
       }

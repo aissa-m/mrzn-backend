@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SellerContextService } from '../common/services/seller-context.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 
 describe('UsersService', () => {
   let service: UsersService;
   let prismaService: any;
+  let sellerContext: { getSellerContext: jest.Mock };
 
   const mockUser = {
     id: 1,
@@ -14,6 +16,7 @@ describe('UsersService', () => {
     email: 'test@example.com',
     phone: '+34600000000',
     role: 'USER',
+    sellerMode: 'PERSONAL',
     avatarUrl: null,
     createdAt: new Date(),
     stores: [],
@@ -38,11 +41,19 @@ describe('UsersService', () => {
         update: jest.fn(),
       },
     };
+    sellerContext = {
+      getSellerContext: jest.fn().mockResolvedValue({
+        sellerMode: 'PERSONAL',
+        store: null,
+        canPublishAsStore: false,
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: SellerContextService, useValue: sellerContext },
       ],
     }).compile();
 
@@ -72,11 +83,27 @@ describe('UsersService', () => {
           country: true,
           avatarUrl: true,
           createdAt: true,
+          sellerMode: true,
           stores: true,
         }),
       });
-      expect(result).toEqual(mockUser);
+      expect(sellerContext.getSellerContext).toHaveBeenCalledWith(1);
+      expect(result).toEqual({
+        ...mockUser,
+        phone: mockUser.phone.trim(),
+        store: null,
+        canPublishAsStore: false,
+      });
       expect(result).not.toHaveProperty('password');
+    });
+
+    it('should trim phone in getMe response', async () => {
+      const raw = { ...mockUser, phone: '  +34600000000  ' };
+      prismaService.user.findUnique.mockResolvedValue(raw);
+
+      const result = await service.getMe(1);
+
+      expect(result?.phone).toBe('+34600000000');
     });
 
     it('should return null if user does not exist', async () => {

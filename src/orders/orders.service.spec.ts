@@ -34,9 +34,8 @@ describe('OrdersService', () => {
 
   beforeEach(async () => {
     const mockPrismaService = {
-      product: {
-        findMany: jest.fn(),
-      },
+      product: { findMany: jest.fn() },
+      store: { findFirst: jest.fn() },
       order: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -88,11 +87,12 @@ describe('OrdersService', () => {
 
     it('should create an order successfully', async () => {
       const mockProducts = [
-        { id: 1, price: new Prisma.Decimal('10.0'), storeId: 1 },
-        { id: 2, price: new Prisma.Decimal('5.0'), storeId: 1 },
+        { id: 1, price: new Prisma.Decimal('10.0'), userId: 2 },
+        { id: 2, price: new Prisma.Decimal('5.0'), userId: 2 },
       ];
 
       prismaService.product.findMany.mockResolvedValue(mockProducts);
+      prismaService.store.findFirst.mockResolvedValue({ id: 1 });
       prismaService.$transaction.mockImplementation(async (callback: any) => {
         const tx = {
           order: {
@@ -120,16 +120,16 @@ describe('OrdersService', () => {
 
     it('should throw NotFoundException if product does not exist', async () => {
       prismaService.product.findMany.mockResolvedValue([
-        { id: 1, price: new Prisma.Decimal('10.0'), storeId: 1 },
+        { id: 1, price: new Prisma.Decimal('10.0'), userId: 2 },
       ]);
 
       await expect(service.create(1, createDto)).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException if products are from different stores', async () => {
+    it('should throw BadRequestException if products are from different sellers', async () => {
       const mockProducts = [
-        { id: 1, price: new Prisma.Decimal('10.0'), storeId: 1 },
-        { id: 2, price: new Prisma.Decimal('5.0'), storeId: 2 },
+        { id: 1, price: new Prisma.Decimal('10.0'), userId: 2 },
+        { id: 2, price: new Prisma.Decimal('5.0'), userId: 3 },
       ];
       prismaService.product.findMany.mockResolvedValue(mockProducts);
 

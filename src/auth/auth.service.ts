@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { SellerContextService } from '../common/services/seller-context.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { RegisterDto, LoginDto } from './dto';
@@ -13,9 +14,10 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private sellerContext: SellerContextService,
   ) {}
 
-  // 👇 ahora devolvemos también el user, no solo el token
+  // 👇 ahora devolvemos también el user con seller context
   async register({ name, email, password }: RegisterDto): Promise<{
     access_token: string;
     user: {
@@ -25,6 +27,9 @@ export class AuthService {
       role: string;
       phone?: string;
       stores: any[];
+      sellerMode: string;
+      store: { id: number; name: string; status: string; subscriptionStatus: string } | null;
+      canPublishAsStore: boolean;
     };
   }> {
     const exists = await this.prisma.user.findUnique({
@@ -59,6 +64,9 @@ export class AuthService {
       role: string;
       phone?: string;
       stores: any[];
+      sellerMode: string;
+      store: { id: number; name: string; status: string; subscriptionStatus: string } | null;
+      canPublishAsStore: boolean;
     };
   }> {
     // incluimos stores para los STORE_OWNER
@@ -88,8 +96,8 @@ export class AuthService {
     return this.sign(safeUser);
   }
 
-  // safeUser ya no tiene password y sí tiene stores (email/name opcionales para OTP)
-  private sign(user: {
+  // safeUser ya no tiene password; añadimos seller context (sellerMode, store, canPublishAsStore)
+  private async sign(user: {
     id: number;
     name: string | null;
     email: string | null;
@@ -102,6 +110,8 @@ export class AuthService {
     if (user.email) payload.email = user.email;
     if (user.phone) payload.phone = user.phone;
 
+    const seller = await this.sellerContext.getSellerContext(user.id);
+
     return {
       access_token: this.jwt.sign(payload),
       user: {
@@ -111,13 +121,16 @@ export class AuthService {
         role: user.role,
         phone: user.phone ?? undefined,
         stores: user.stores ?? [],
+        sellerMode: seller.sellerMode,
+        store: seller.store,
+        canPublishAsStore: seller.canPublishAsStore,
       },
     };
   }
 
   /**
    * Emite tokens para un usuario ya validado (p. ej. tras OTP verify).
-   * Devuelve access_token y user (misma forma que register/login).
+   * Devuelve access_token y user (misma forma que register/login) con seller context.
    */
   signOtpUser(user: {
     id: number;

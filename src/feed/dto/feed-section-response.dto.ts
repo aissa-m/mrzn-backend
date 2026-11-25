@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { FeedSectionType } from './feed-section-type.enum';
+import type { FeedStoreDto } from './feed-item.dto';
 
 /**
  * Item de sección cuando el tipo es TRENDING o BEST_VALUE (producto).
@@ -13,6 +14,18 @@ export class FeedSectionProductItemDto {
   price: number;
   @ApiProperty({ nullable: true, description: 'Primera imagen del producto' })
   coverImage: string | null;
+  @ApiProperty({
+    enum: ['ACTIVE', 'RESERVED', 'SOLD', 'PAUSED'],
+    description:
+      'Estado del producto en el marketplace. ACTIVE = visible y disponible, RESERVED = visible pero reservado, SOLD = vendido (oculto en listados públicos), PAUSED = pausado/oculto.',
+  })
+  status: 'ACTIVE' | 'RESERVED' | 'SOLD' | 'PAUSED';
+
+  @ApiProperty({ enum: ['STORE', 'PERSONAL'] })
+  sellerType: 'STORE' | 'PERSONAL';
+
+  @ApiProperty({ required: false, description: 'Si sellerType es STORE' })
+  store?: FeedStoreDto;
 }
 
 /**

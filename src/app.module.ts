@@ -22,6 +22,7 @@ import { CartModule } from './cart/cart.module';
 import { AdminModule } from './admin/admin.module';
 import { FeedModule } from './feed/feed.module';
 import { SearchModule } from './search/search.module';
+import { LocationsModule } from './locations/locations.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { SearchModule } from './search/search.module';
     AttributesModule,
     AdminModule,
     MoosylModule,
+    LocationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

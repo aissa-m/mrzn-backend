@@ -21,15 +21,15 @@ Sin cambiar endpoints, DTOs ni flujo posterior (creación de usuario, JWT). El p
 
 - **OtpService** solo:
   - Normaliza el teléfono.
-  - Delega “solicitar OTP” en `provider.requestOtp(phone)` (ignora `desiredRole` a nivel provider).
+  - Delega “solicitar OTP” en `provider.requestOtp(phone)` (ignora cualquier `desiredRole`).
   - Delega “validar código” en `provider.verifyCode(phone, code)`.
-  - Después de `verifyCode` exitoso: find/create user, comprobación de rol (`ROLE_MISMATCH`), devolución del mismo shape de usuario. No contiene lógica de generación/almacenamiento/validación del código.
+  - Después de `verifyCode` exitoso: find/create user de forma **neutra respecto al rol** (sin `ROLE_MISMATCH`), devolución del mismo shape de usuario. No contiene lógica de generación/almacenamiento/validación del código.
 
 - **Providers:**
   - **LocalOtpProvider:** Toda la lógica actual de OTP (rate limit con `otpCode`, generación, bcrypt, `OtpCode`, envío vía `ISmsService` en prod, bypass `000000` solo en no-production).
   - **TwilioOtpProvider:** Llama a Twilio Verify (start + check), mapea errores de Twilio a `OTP_RATE_LIMIT`, `OTP_EXPIRED`, `OTP_TOO_MANY_ATTEMPTS`, `OTP_INVALID`. No usa Prisma ni tabla `OtpCode`.
 
-### 1.2 Contrato de errores (sin cambios)
+### 1.2 Contrato de errores (sin cambios en OTP; sin ROLE_MISMATCH)
 
 Los controladores y clientes siguen recibiendo los mismos códigos:
 
@@ -37,7 +37,6 @@ Los controladores y clientes siguen recibiendo los mismos códigos:
 - `OTP_EXPIRED` – código caducado o ya usado.
 - `OTP_TOO_MANY_ATTEMPTS` – demasiados intentos fallidos.
 - `OTP_INVALID` – código incorrecto.
-- `ROLE_MISMATCH` – lo lanza `OtpService` tras verificación correcta (no el provider).
 
 Cada provider traduce sus propios errores (p. ej. respuestas de Twilio Verify) a este contrato.
 
@@ -106,7 +105,7 @@ No se crea carpeta `auth/otp/` para no anidar de más; `interfaces/` y `provider
 
 | Archivo | Cambios |
 |---------|---------|
-| **`src/auth/otp.service.ts`** | Eliminar toda la lógica de generación, hash, `otpCode`, bcrypt, SMS y bypass. Mantener `normalizePhone` (exportada si la usan los specs). Constructor: `PrismaService` + `@Inject(OTP_PROVIDER) private provider: IOtpProvider`. `requestOtp(phone, desiredRole)`: `normalized = normalizePhone(phone)`; `return this.provider.requestOtp(normalized)`. `verifyOtp(phone, code, desiredRole)`: `normalized = normalizePhone(phone)`; `await this.provider.verifyCode(normalized, code)`; a continuación, la misma lógica actual de usuario: `findUnique` por phone, si existe comprobar rol → `ROLE_MISMATCH` si no coincide, si no existe `user.create`; devolver el mismo objeto user (sin password). Sin referencias a `otpCode`, `bcrypt` ni `SMS_SERVICE`. |
+| **`src/auth/otp.service.ts`** | Eliminar toda la lógica de generación, hash, `otpCode`, bcrypt, SMS y bypass. Mantener `normalizePhone` (exportada si la usan los specs). Constructor: `PrismaService` + `@Inject(OTP_PROVIDER) private provider: IOtpProvider`. `requestOtp(phone, desiredRole?)`: `normalized = normalizePhone(phone)`; `return this.provider.requestOtp(normalized)`. `verifyOtp(phone, code, desiredRole?)`: `normalized = normalizePhone(phone)`; `await this.provider.verifyCode(normalized, code)`; a continuación, lógica de usuario **sin comprobación de rol**: `findUnique` por phone; si existe se devuelve tal cual; si no existe `user.create` con rol por defecto (`USER`); devolver el mismo objeto user (sin password). Sin referencias a `otpCode`, `bcrypt` ni `SMS_SERVICE`. |
 | **`src/auth/auth.module.ts`** | Añadir imports: `OTP_PROVIDER`, `IOtpProvider` (tipo), `LocalOtpProvider`, `TwilioOtpProvider`. En `providers`: registrar `LocalOtpProvider`, `TwilioOtpProvider`, y `{ provide: OTP_PROVIDER, useFactory: (local, twilio) => process.env.OTP_PROVIDER === 'twilio' ? twilio : local, inject: [LocalOtpProvider, TwilioOtpProvider] }`. Mantener `SmsModule` en imports y `OtpService` en providers. No modificar AuthService ni controladores. |
 | **`src/auth/otp.service.spec.ts`** | Dejar de mockear Prisma `otpCode` y SMS; mockear `OTP_PROVIDER`: `requestOtp` resuelve `{ success: true }`, `verifyCode` resuelve sin valor. Mockear Prisma solo para `user.findUnique` y `user.create`. Tests: request delega al provider; verify llama a `verifyCode` y luego flujo de usuario (usuario existente, usuario nuevo, ROLE_MISMATCH). Opcional: test que verifica que si `provider.verifyCode` lanza OTP_INVALID, el servicio propaga la excepción y no llega a buscar usuario. |
 
@@ -142,8 +141,7 @@ No se crea carpeta `auth/otp/` para no anidar de más; `interfaces/` y `provider
 | Verificar código | Sí (bcrypt / bypass dev) | Sí (API Check) | No |
 | Bypass dev 000000 | Sí (solo no prod) | No | No |
 | Normalizar phone | Recibe ya normalizado | Recibe ya normalizado | Sí |
-| Find/create user | No | No | Sí |
-| ROLE_MISMATCH | No | No | Sí |
+| Find/create user | No | No | Sí (sin chequeos de rol) |
 | Devolver user para JWT | No | No | Sí (tras verifyCode OK) |
 
 Esta separación mantiene el diseño limpio, escalable y profesional, y permite cambiar de provider sin tocar AuthService ni controladores.

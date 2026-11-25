@@ -9,6 +9,20 @@ import type {
 } from './dto/feed-section-response.dto';
 import { FeedSectionType } from './dto/feed-section-type.enum';
 import { StoreStatus } from '@prisma/client';
+import {
+  productSellerPrismaSelect,
+  resolveProductSellerPresentation,
+  storeLogoUrl,
+} from '../common/utils/product-seller-presentation.util';
+
+const PRODUCT_STATUS = {
+  ACTIVE: 'ACTIVE',
+  RESERVED: 'RESERVED',
+  SOLD: 'SOLD',
+  PAUSED: 'PAUSED',
+} as const;
+
+type ProductStatus = (typeof PRODUCT_STATUS)[keyof typeof PRODUCT_STATUS];
 
 const CURSOR_SEP = '_';
 
@@ -53,7 +67,13 @@ export class FeedService {
 
     const parsed = cursor ? parseCursor(cursor) : null;
 
-    const conditions: object[] = [];
+    const conditions: object[] = [
+      {
+        status: {
+          in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+        },
+      },
+    ];
     if (parsed) {
       conditions.push({
         OR: [
@@ -68,7 +88,7 @@ export class FeedService {
     if (excludeUserId != null) {
       conditions.push({ userId: { not: excludeUserId } });
     }
-    const where = conditions.length > 0 ? { AND: conditions } : undefined;
+    const where = { AND: conditions };
 
     const rows = await this.prisma.product.findMany({
       where,
@@ -82,16 +102,12 @@ export class FeedService {
         userId: true,
         storeId: true,
         categoryId: true,
+        status: true,
         category: {
           select: { name: true },
         },
-        store: {
-          select: {
-            id: true,
-            name: true,
-            logoImageUrl: true,
-          },
-        },
+        store: productSellerPrismaSelect.store,
+        user: productSellerPrismaSelect.user,
         images: {
           orderBy: { createdAt: 'asc' },
           take: 1,
@@ -103,23 +119,33 @@ export class FeedService {
     const hasMore = rows.length > pageSize;
     const items = (hasMore ? rows.slice(0, pageSize) : rows) as typeof rows;
 
-    const feedItems: FeedItemDto[] = items.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: Number(p.price),
-      coverImage: p.images[0]?.url ?? null,
-      createdAt: p.createdAt.toISOString(),
-      userId: p.userId,
-      categoryId: p.categoryId ?? null,
-      categoryName: p.category?.name ?? null,
-      ...(p.store && {
-        store: {
-          storeId: p.store.id,
-          name: p.store.name,
-          logoImageUrl: p.store.logoImageUrl ?? null,
-        },
-      }),
-    }));
+    const feedItems: FeedItemDto[] = items.map((p) => {
+      const pres = resolveProductSellerPresentation(
+        p.userId,
+        p.storeId,
+        p.store as any,
+        p.user as any,
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        coverImage: p.images[0]?.url ?? null,
+        createdAt: p.createdAt.toISOString(),
+        userId: p.userId,
+        categoryId: p.categoryId ?? null,
+        categoryName: p.category?.name ?? null,
+        status: (p as any).status as ProductStatus,
+        sellerType: pres.sellerType,
+        ...(pres.store && {
+          store: {
+            storeId: pres.store.id,
+            name: pres.store.name,
+            logoImageUrl: pres.store.logoImageUrl,
+          },
+        }),
+      };
+    });
 
     const last = items[items.length - 1];
     const nextCursor =
@@ -155,51 +181,79 @@ export class FeedService {
         select: {
           id: true,
           name: true,
+          logoUrl: true,
           logoImageUrl: true,
         },
       });
       const items: FeedSectionShopItemDto[] = stores.map((s) => ({
         id: s.id,
         name: s.name,
-        logoImageUrl: s.logoImageUrl ?? null,
+        logoImageUrl: storeLogoUrl(s),
       }));
       return { type: FeedSectionType.SHOPS, items };
     }
 
     if (type === FeedSectionType.TRENDING) {
-      const products = await this.prisma.product.findMany({
-        where:
-          excludeUserId != null
-            ? { userId: { not: excludeUserId } }
-            : undefined,
+      const products = (await this.prisma.product.findMany({
+        where: {
+          status: {
+            in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+          },
+          ...(excludeUserId != null ? { userId: { not: excludeUserId } } : {}),
+        } as any,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: FeedService.SECTION_PAGE_SIZE,
         select: {
           id: true,
           name: true,
           price: true,
+          status: true,
+          userId: true,
+          storeId: true,
+          store: productSellerPrismaSelect.store,
+          user: productSellerPrismaSelect.user,
           images: {
             orderBy: { createdAt: 'asc' },
             take: 1,
             select: { url: true },
           },
-        },
+        } as any,
+      })) as any[];
+      const items: FeedSectionProductItemDto[] = products.map((p: any) => {
+        const pres = resolveProductSellerPresentation(
+          p.userId,
+          p.storeId,
+          p.store,
+          p.user,
+        );
+        return {
+          id: p.id,
+          name: p.name,
+          price: Number(p.price),
+          coverImage: p.images[0]?.url ?? null,
+          status: (p as any).status as ProductStatus,
+          sellerType: pres.sellerType,
+          ...(pres.store && {
+            store: {
+              storeId: pres.store.id,
+              name: pres.store.name,
+              logoImageUrl: pres.store.logoImageUrl,
+            },
+          }),
+        };
       });
-      const items: FeedSectionProductItemDto[] = products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        price: Number(p.price),
-        coverImage: p.images[0]?.url ?? null,
-      }));
       return { type: FeedSectionType.TRENDING, items };
     }
 
-    // BEST_VALUE: precio ascendente, solo precios válidos (> 0)
-    const bestValueWhere =
-      excludeUserId != null
-        ? { price: { gt: 0 }, userId: { not: excludeUserId } }
-        : { price: { gt: 0 } };
-    const products = await this.prisma.product.findMany({
+    // BEST_VALUE: precio ascendente, solo precios válidos (> 0), solo activos o reservados
+    const bestValueWhere: any = {
+      status: {
+        in: [PRODUCT_STATUS.ACTIVE, PRODUCT_STATUS.RESERVED],
+      },
+      price: { gt: 0 },
+      ...(excludeUserId != null ? { userId: { not: excludeUserId } } : {}),
+    };
+    const products = (await this.prisma.product.findMany({
       where: bestValueWhere,
       orderBy: [{ price: 'asc' }, { id: 'asc' }],
       take: FeedService.SECTION_PAGE_SIZE,
@@ -207,19 +261,41 @@ export class FeedService {
         id: true,
         name: true,
         price: true,
+        status: true,
+        userId: true,
+        storeId: true,
+        store: productSellerPrismaSelect.store,
+        user: productSellerPrismaSelect.user,
         images: {
           orderBy: { createdAt: 'asc' },
           take: 1,
           select: { url: true },
         },
-      },
+      } as any,
+    })) as any[];
+    const items: FeedSectionProductItemDto[] = products.map((p: any) => {
+      const pres = resolveProductSellerPresentation(
+        p.userId,
+        p.storeId,
+        p.store,
+        p.user,
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        coverImage: p.images[0]?.url ?? null,
+        status: (p as any).status as ProductStatus,
+        sellerType: pres.sellerType,
+        ...(pres.store && {
+          store: {
+            storeId: pres.store.id,
+            name: pres.store.name,
+            logoImageUrl: pres.store.logoImageUrl,
+          },
+        }),
+      };
     });
-    const items: FeedSectionProductItemDto[] = products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: Number(p.price),
-      coverImage: p.images[0]?.url ?? null,
-    }));
     return { type: FeedSectionType.BEST_VALUE, items };
   }
 }

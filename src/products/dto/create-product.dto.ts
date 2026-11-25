@@ -1,6 +1,19 @@
 // src/products/dto/create-product.dto.ts
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength, IsArray, ArrayMinSize } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+  IsEnum,
+} from 'class-validator';
+
+export enum ListingModeDto {
+  PERSONAL = 'PERSONAL',
+  STORE = 'STORE',
+}
 
 export class CreateProductDto {
   @IsString()
@@ -17,6 +30,12 @@ export class CreateProductDto {
   @IsPositive()
   price!: number;
 
+  /// @deprecated Ignorado. Productos siempre del usuario; mostrar "como tienda" depende de sellerMode/store.
+  @IsOptional()
+  @IsEnum(ListingModeDto)
+  listingMode?: ListingModeDto;
+
+  /// @deprecated Ignorado. No se usa para ownership.
   @Type(() => Number)
   @IsOptional()
   @IsInt()

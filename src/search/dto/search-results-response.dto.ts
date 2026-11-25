@@ -38,6 +38,16 @@ export class SearchResultItemDto {
   @ApiProperty()
   userId: number;
 
+  @ApiProperty({
+    enum: ['ACTIVE', 'RESERVED', 'SOLD', 'PAUSED'],
+    description:
+      'Estado del producto en el marketplace. ACTIVE = visible y disponible, RESERVED = visible pero reservado, SOLD = vendido (oculto en listados públicos), PAUSED = pausado/oculto.',
+  })
+  status: 'ACTIVE' | 'RESERVED' | 'SOLD' | 'PAUSED';
+
+  @ApiProperty({ enum: ['STORE', 'PERSONAL'] })
+  sellerType: 'STORE' | 'PERSONAL';
+
   @ApiProperty({ required: false })
   store?: SearchResultStoreDto;
 }

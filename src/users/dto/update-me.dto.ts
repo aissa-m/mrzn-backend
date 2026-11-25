@@ -8,7 +8,7 @@ import {
   IsDateString,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { Gender } from '@prisma/client';
+import { Gender, SellerMode } from '@prisma/client';
 import { IsEmailWithCode } from '../../common/validators/email-with-code.validator';
 
 const MAX_NAME = 80;
@@ -102,4 +102,8 @@ export class UpdateMeDto {
   @IsOptional()
   @IsEnum(Gender)
   gender?: Gender;
+
+  @IsOptional()
+  @IsEnum(SellerMode)
+  sellerMode?: SellerMode;
 }

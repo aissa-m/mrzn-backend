@@ -92,7 +92,7 @@ describe('OwnershipService', () => {
       const result = await service.isProductOwner(1, 1);
 
       expect(prismaService.product.count).toHaveBeenCalledWith({
-        where: { id: 1, store: { ownerId: 1 } },
+        where: { id: 1, userId: 1 },
       });
       expect(result).toBe(true);
     });

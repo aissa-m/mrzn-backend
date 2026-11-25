@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OtpService } from './otp.service';
 import { OTP_PROVIDER } from './interfaces/otp-provider.interface';
@@ -86,6 +86,48 @@ describe('OtpService', () => {
       });
     });
 
+    it('should create new user as STORE_OWNER when legacy app sends desiredRole STORE_OWNER', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 3,
+        phone: '+34600000000',
+        role: 'STORE_OWNER',
+        name: null,
+        email: null,
+        password: null,
+        stores: [],
+      });
+
+      await service.verifyOtp(phone, '123456', 'STORE_OWNER');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'STORE_OWNER' }),
+        }),
+      );
+    });
+
+    it('should create new user as USER when desiredRole is omitted', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 4,
+        phone: '+34600000000',
+        role: 'USER',
+        name: null,
+        email: null,
+        password: null,
+        stores: [],
+      });
+
+      await service.verifyOtp(phone, '123456');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'USER' }),
+        }),
+      );
+    });
+
     it('should propagate OTP_EXPIRED from provider and not touch user', async () => {
       mockOtpProvider.verifyCode.mockRejectedValue(
         new BadRequestException({ code: 'OTP_EXPIRED', message: 'Expired' }),
@@ -97,34 +139,11 @@ describe('OtpService', () => {
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
 
-    it('should throw ROLE_MISMATCH when existing user has different role', async () => {
-      mockOtpProvider.verifyCode.mockResolvedValue(undefined);
-      prisma.user.findUnique.mockResolvedValue({
-        id: 2,
-        phone,
-        role: 'STORE_OWNER',
-        name: null,
-        email: null,
-        password: null,
-        stores: [],
-      });
-
-      let err: any;
-      try {
-        await service.verifyOtp(phone, '123456', 'USER');
-      } catch (e) {
-        err = e;
-      }
-      expect(err).toBeInstanceOf(ConflictException);
-      expect(err.response?.code).toBe('ROLE_MISMATCH');
-      expect(err.response?.currentRole).toBe('STORE_OWNER');
-    });
-
-    it('should return existing user when role matches', async () => {
+    it('should return existing user even when role differs from desiredRole', async () => {
       const existingUser = {
         id: 3,
         phone,
-        role: 'USER',
+        role: 'STORE_OWNER',
         name: 'Juan',
         email: null,
         password: null,
@@ -133,10 +152,10 @@ describe('OtpService', () => {
       mockOtpProvider.verifyCode.mockResolvedValue(undefined);
       prisma.user.findUnique.mockResolvedValue(existingUser);
 
-      const user = await service.verifyOtp(phone, '123456', desiredRole);
+      const user = await service.verifyOtp(phone, '123456', 'USER');
 
       expect(user.id).toBe(3);
-      expect(user.role).toBe('USER');
+      expect(user.role).toBe('STORE_OWNER');
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
   });

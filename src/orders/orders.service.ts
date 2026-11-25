@@ -29,23 +29,30 @@ export class OrdersService {
     const productIds = dto.items.map((i) => i.productId);
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, price: true, storeId: true },
+      select: { id: true, price: true, userId: true },
     });
 
     if (products.length !== dto.items.length) {
       throw new NotFoundException('Uno o más productos no existen.');
     }
 
-    // Reglas tipo Wallapop: todos los items de la misma tienda
-    const storeId = products[0].storeId;
-    if (storeId == null) {
+    // Todos los productos del mismo vendedor (owner es userId)
+    const sellerId = products[0].userId;
+    if (!products.every((p) => p.userId === sellerId)) {
       throw new BadRequestException(
-        'Los productos deben pertenecer a una tienda para crear el pedido.',
+        'Todos los productos deben ser del mismo vendedor.',
       );
     }
-    if (!products.every((p) => p.storeId === storeId)) {
+
+    // storeId del pedido = tienda del vendedor (si tiene). La tienda es capa comercial del usuario.
+    const sellerStore = await this.prisma.store.findFirst({
+      where: { ownerId: sellerId },
+      select: { id: true },
+    });
+    const storeId = sellerStore?.id ?? null;
+    if (storeId == null) {
       throw new BadRequestException(
-        'Todos los productos deben pertenecer a la misma tienda.',
+        'El vendedor no tiene tienda configurada para recibir pedidos.',
       );
     }
 

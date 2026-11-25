@@ -29,8 +29,9 @@ export class OtpRequestDto {
   @MaxLength(20)
   phone: string;
 
+  @IsOptional()
   @IsIn(['USER', 'STORE_OWNER'])
-  desiredRole: 'USER' | 'STORE_OWNER';
+  desiredRole?: 'USER' | 'STORE_OWNER';
 }
 
 export class OtpVerifyDto {
@@ -45,6 +46,7 @@ export class OtpVerifyDto {
   @Matches(/^[0-9]{6}$/, { message: 'code must be 6 digits' })
   code: string;
 
+  @IsOptional()
   @IsIn(['USER', 'STORE_OWNER'])
-  desiredRole: 'USER' | 'STORE_OWNER';
+  desiredRole?: 'USER' | 'STORE_OWNER';
 }

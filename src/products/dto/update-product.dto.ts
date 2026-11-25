@@ -1,6 +1,14 @@
 // src/products/dto/update-product.dto.ts
-import { IsOptional, IsString, IsNumber, IsArray, IsInt, IsPositive } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsInt,
+  IsPositive,
+  IsEnum,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { ListingModeDto } from './create-product.dto';
 
 export class UpdateProductDto {
   @IsOptional()
@@ -30,10 +38,15 @@ export class UpdateProductDto {
   @IsPositive()
   categoryId?: number;
 
-  /** Tienda a asociar. Si se envía, debe pertenecer al usuario (salvo ADMIN). */
+  /** @deprecated Ignorado. Ownership siempre por userId. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @IsPositive()
   storeId?: number;
+
+  /** @deprecated Ignorado. */
+  @IsOptional()
+  @IsEnum(ListingModeDto)
+  listingMode?: ListingModeDto;
 }

@@ -1,0 +1,2 @@
+-- No schema changes: support conversation fields already added in 20260310140000_add_conversation_support.
+-- This migration exists to satisfy Prisma migration history.
